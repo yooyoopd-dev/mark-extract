@@ -21,4 +21,8 @@
 
 ## 라이선스
 
-미정. 차용 프로젝트의 라이선스와 미결 사항은 [`docs/design/ATTRIBUTION.md`](docs/design/ATTRIBUTION.md)에 정리되어 있다.
+**오픈소스 라이선스를 부여하지 않는다. 사내 전용이다.**
+
+저장소는 public이라 소스를 볼 수 있지만 `LICENSE` 파일이 없어 기본 저작권이 유지된다 — 열람은 가능하되 사용·복제·배포 허가는 부여되지 않는다.
+
+동봉하는 구성요소(Apache-2.0, MIT)의 저작권 고지 의무는 그대로 이행한다. 차용 출처와 근거는 [`docs/design/ATTRIBUTION.md`](docs/design/ATTRIBUTION.md)에 있다.

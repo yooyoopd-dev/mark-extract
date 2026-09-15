@@ -66,11 +66,11 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 | 암호 | `--password` | 문서 열기 암호 |
 | 페이지 구분자 | `--markdown-page-separator` | `%page-number%` 치환 지원 |
 | 줄바꿈 보존 | `--keep-line-breaks` | |
-| OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` `--hybrid-timeout` | → [OCR](#ocr--hybrid-서버) |
+| OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` `--hybrid-timeout` | → [OCR](#ocr과-hybrid-서버) |
 
 고정값: `--format markdown`, `--quiet`(로그는 stderr로), `--threads 1`(기본. 문서 단위로 이미 큐가 있고 `>1`은 실험적이며 출력이 달라질 수 있음).
 
-### OCR — hybrid 서버
+### OCR과 hybrid 서버
 
 opendataloader의 **로컬 Java 파이프라인에는 OCR이 없다.** OCR은 `--hybrid docling-fast`로 외부 Python 백엔드에 넘길 때만 동작한다.
 
@@ -155,9 +155,11 @@ markitdown은 표를 HTML로 만든 뒤 Markdown으로 변환하지만, 우리�
 
 차트가 캐시 데이터를 갖고 있지 않거나 지원하지 않는 종류면 `[unsupported chart]`를 남기고 경고를 단다.
 
-### 범위
+### 범위 (결정 24)
 
-**1단계에서 다루지 않는 것** (경고만 남기고 건너뜀): SmartArt, 애니메이션, 슬라이드 마스터의 배경 텍스트, 삽입된 OLE 객체. 필요해지면 확장한다.
+**다루는 것**: 슬라이드 텍스트, 표, 발표자 노트, 이미지 참조, 차트.
+
+**다루지 않는 것** (경고만 남기고 건너뜀): SmartArt, 애니메이션, 슬라이드 마스터의 배경 텍스트, 삽입된 OLE 객체. 확장 여부는 실제 문서에서 필요성이 확인된 뒤에 정한다.
 
 ---
 
@@ -168,7 +170,7 @@ markitdown은 표를 HTML로 만든 뒤 Markdown으로 변환하지만, 우리�
 | 상황 | 처리 |
 |---|---|
 | 0바이트 파일 | 즉시 실패. `EMPTY_INPUT` |
-| 파일 크기 상한 초과 | 기본 500MB. 초과 시 변환 전 실패 (상한은 설정 가능) |
+| 파일 크기 상한 초과 | **500MB** (결정 21). 초과 시 변환 전 실패. 설정에서 변경 가능 |
 | 파일이 다른 앱에 잠김 | 읽기 실패를 명시하고 "파일을 닫고 재시도" 안내 |
 | 암호 문서 | 암호 입력 다이얼로그 → 재시도. 암호는 메모리에만 두고 저장하지 않는다 |
 | 텍스트가 없는 PDF(스캔본) | 결과가 사실상 비면 감지해 "스캔 문서로 보입니다" 안내. hybrid 연결되어 있으면 'OCR 켜고 재시도', 아니면 설정 화면으로 보내는 링크 |
