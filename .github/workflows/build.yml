@@ -13,10 +13,16 @@ on:
 permissions:
   contents: read
 
+# 새로 밀면 이전 실행은 버린다. 러너 시간을 아끼고 결과가 헷갈리지 않는다.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-linux:
     name: 리눅스 검증
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,6 +61,7 @@ jobs:
   debug-windows:
     name: Windows 디버그 빌드
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,13 +90,39 @@ jobs:
 
       # 패키징 뒤에야 process.resourcesPath 경로가 검증된다. 개발 경로와 다르므로
       # 여기서 깨지면 배포본이 동봉 JRE 를 못 찾는다는 뜻이다.
+      #
+      # 먼저 배치를 확인하고, 그 다음 실제로 돌린다. 배치 확인은 결정적이고
+      # 빠르므로 실행이 어긋났을 때 원인을 가려 준다.
+      - name: 패키징 배치 확인
+        shell: pwsh
+        run: |
+          $missing = @()
+          foreach ($p in @(
+            "dist/win-unpacked/resources/jre/bin/java.exe",
+            "dist/win-unpacked/resources/lib/opendataloader-pdf-cli.jar",
+            "dist/win-unpacked/resources/sample-ko.pdf"
+          )) { if (-not (Test-Path $p)) { $missing += $p } else { Write-Host "있음: $p" } }
+          if ($missing.Count -gt 0) { throw "패키징에 빠진 파일: $($missing -join ', ')" }
+
       - name: 패키징된 앱 자체 점검
         shell: pwsh
         run: |
-          $exe = Get-ChildItem dist/*.exe | Select-Object -First 1
-          Write-Host "실행: $($exe.FullName) --self-test"
-          & $exe.FullName --self-test | Tee-Object -FilePath out/verify/self-test-windows.txt
-          if ($LASTEXITCODE -ne 0) { throw "자체 점검 실패 (exit $LASTEXITCODE)" }
+          # Electron 은 GUI 서브시스템이라 & 로 부르면 콘솔에 붙지 않아 출력이
+          # 사라지고 대기 동작도 다르다. 핸들을 직접 넘겨 받고 시간 제한을 둔다.
+          $exe = (Get-ChildItem dist/win-unpacked/*.exe | Select-Object -First 1).FullName
+          Write-Host "실행: $exe --self-test"
+          $out = "out/verify/self-test-windows.txt"
+          $err = "out/verify/self-test-windows.err.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru `
+                 -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden
+          if (-not $p.WaitForExit(180000)) {
+            $p.Kill()
+            Get-Content $out -ErrorAction SilentlyContinue | Write-Host
+            throw "자체 점검이 180초를 넘겨 중단되었습니다."
+          }
+          Get-Content $out -ErrorAction SilentlyContinue | Write-Host
+          Get-Content $err -ErrorAction SilentlyContinue | Write-Host
+          if ($p.ExitCode -ne 0) { throw "자체 점검 실패 (exit $($p.ExitCode))" }
 
       - name: 변환 결과 업로드
         uses: actions/upload-artifact@v4
