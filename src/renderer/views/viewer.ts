@@ -5,7 +5,7 @@
  * 파일을 반출할 수 없어 이 탭이 유일한 자가진단 수단이므로 전체 복사 버튼을 둔다.
  */
 import { esc, highlightMarkdown, icon, renderMarkdown } from "../markdown.js";
-import { KIND_LABEL, state, type Doc } from "../state.js";
+import { isDirty, KIND_LABEL, markdown, state, type Doc } from "../state.js";
 
 function emptyPanel(): string {
   return `
@@ -82,8 +82,18 @@ export function renderViewer(
   panel: HTMLElement,
   crumbs: HTMLElement,
   warnCount: HTMLElement,
+  dirtyBar: HTMLElement,
   doc: Doc | null,
 ): void {
+  dirtyBar.innerHTML =
+    doc && isDirty(doc)
+      ? `<div class="dirty">
+          ${icon("i-alert", "icon icon-sm")}
+          <span>추출 옵션이 변경되었습니다. 결과에 반영하려면 재변환하세요.</span>
+          <button class="btn-mini" id="dirtyRun">재변환</button>
+        </div>`
+      : "";
+
   if (!doc) {
     crumbs.innerHTML = "";
     warnCount.textContent = "";
@@ -106,7 +116,7 @@ export function renderViewer(
         ${icon(doc.status === "run" ? "i-loader" : "i-clock", "icon")}
         <p class="empty-title">${doc.status === "run" ? "변환하는 중입니다" : "변환 대기 중"}</p>
         <p class="empty-sub">${esc(doc.name)}</p>
-        ${doc.status === "queued" ? `<button class="btn primary" id="runNow">지금 변환 시작</button>` : ""}
+        <button class="btn" id="cancelRun">${icon("i-x", "icon icon-sm")}<span>취소</span></button>
       </div>`;
     return;
   }
@@ -116,10 +126,17 @@ export function renderViewer(
     return;
   }
 
-  if (state.tab === "source") {
-    panel.innerHTML = `<pre class="source"><code>${highlightMarkdown(doc.result.markdown)}</code></pre>`;
+  // 본문은 스냅샷에 없다. doc:markdown 으로 따로 받아 둔 것을 쓴다.
+  const body = markdown();
+  if (body === "") {
+    panel.innerHTML = `<div class="empty">${icon("i-loader", "icon")}<p class="empty-sub">본문을 불러오는 중…</p></div>`;
     return;
   }
 
-  panel.innerHTML = `<article class="reading"><div class="reading-inner">${renderMarkdown(doc.result.markdown)}</div></article>`;
+  if (state.tab === "source") {
+    panel.innerHTML = `<pre class="source"><code>${highlightMarkdown(body)}</code></pre>`;
+    return;
+  }
+
+  panel.innerHTML = `<article class="reading"><div class="reading-inner">${renderMarkdown(body)}</div></article>`;
 }

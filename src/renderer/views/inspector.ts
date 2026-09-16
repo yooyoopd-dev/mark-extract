@@ -10,7 +10,7 @@
  * 원본의 선택지는 시제품이라 없는 값을 담고 있었다.
  */
 import { esc, icon } from "../markdown.js";
-import { KIND_LABEL, STATUS, type Doc } from "../state.js";
+import { effectiveOptions, KIND_LABEL, STATUS, type Doc } from "../state.js";
 
 function sizeLabel(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -33,6 +33,13 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
   const result = doc.result;
   const status = STATUS[doc.status];
   const unit = doc.kind === "pptx" ? "슬라이드" : doc.kind === "xlsx" || doc.kind === "xls" ? "시트" : "쪽";
+
+  const options = effectiveOptions(doc);
+  // 표 감지 방식은 opendataloader 의 --table-method 라서 PDF 에만 있다.
+  const pdfOnly = doc.kind === "pdf" ? "" : "disabled";
+  const sel = (value: string, want: string): string => (value === want ? " selected" : "");
+  // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
+  const strip = options.includeHeaderFooter !== true;
 
   host.innerHTML = `
     <div class="insp-sec">
@@ -71,22 +78,22 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
       </div>
       <div class="switchrow insp-switch-last">
         <span class="txt"><b>머리글·바닥글 제거</b><span>반복되는 페이지 번호와 머리글을 본문에서 제외</span></span>
-        <button class="sw" role="switch" data-opt="strip" aria-checked="true" aria-label="머리글 바닥글 제거"></button>
+        <button class="sw" role="switch" data-opt="strip" aria-checked="${strip}" aria-label="머리글 바닥글 제거"></button>
       </div>
       <div class="opt">
         <label for="optTables">표 감지 방식</label>
-        <select id="optTables" data-opt="tables">
-          <option value="default" selected>테두리 기반</option>
-          <option value="cluster">테두리 + 군집</option>
+        <select id="optTables" data-opt="tableMethod" ${pdfOnly}>
+          <option value="default"${sel(options.tableMethod ?? "default", "default")}>테두리 기반</option>
+          <option value="cluster"${sel(options.tableMethod ?? "default", "cluster")}>테두리 + 군집</option>
         </select>
         <span class="desc">테두리가 없는 표가 많은 문서는 군집 방식이 더 잘 잡습니다. PDF 전용입니다.</span>
       </div>
       <div class="opt">
         <label for="optImages">이미지 처리</label>
-        <select id="optImages" data-opt="images">
-          <option value="external" selected>파일로 참조</option>
-          <option value="embedded">본문에 포함</option>
-          <option value="off">제외</option>
+        <select id="optImages" data-opt="imageOutput">
+          <option value="external"${sel(options.imageOutput ?? "external", "external")}>파일로 참조</option>
+          <option value="embedded"${sel(options.imageOutput ?? "external", "embedded")}>본문에 포함</option>
+          <option value="off"${sel(options.imageOutput ?? "external", "off")}>제외</option>
         </select>
       </div>
       <button class="btn block" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 설정으로 재변환</span></button>

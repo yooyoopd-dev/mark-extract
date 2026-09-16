@@ -8,16 +8,42 @@
  * sandbox: true 라서 이 파일은 CommonJS 로 컴파일된다 (tsconfig.node.json).
  */
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { MarkExtractApi, ParseResult, PickedFile, WindowAction } from "../shared/api";
+import type { AddResult, DocOptions, DocView, ExportResult, MarkExtractApi, Settings, WatchFolder, WindowAction } from "../shared/api";
+
+const call = <T>(channel: string, ...args: unknown[]): Promise<T> =>
+  ipcRenderer.invoke(channel, ...args) as Promise<T>;
 
 const api: MarkExtractApi = {
   version: process.versions.electron,
   getFilePath: (file) => webUtils.getPathForFile(file),
-  pickFiles: () => ipcRenderer.invoke("doc:pick") as Promise<PickedFile[]>,
-  initialFiles: () => ipcRenderer.invoke("doc:initial") as Promise<PickedFile[]>,
-  convert: (filePath) => ipcRenderer.invoke("doc:convert", filePath) as Promise<ParseResult>,
-  // 채널은 하나지만 동작은 세 가지로 제한된다. main 이 값을 검사한다.
-  window: (action: WindowAction) => ipcRenderer.invoke("window:action", action) as Promise<void>,
+
+  list: () => call<DocView[]>("doc:list"),
+  markdown: (id) => call<string>("doc:markdown", id),
+  add: (paths) => call<AddResult>("doc:add", paths),
+  remove: (id) => call<void>("doc:remove", id),
+  star: (id, value) => call<void>("doc:star", id, value),
+  cancel: (id) => call<void>("doc:cancel", id),
+  reconvert: (id, options: DocOptions) => call<void>("doc:reconvert", id, options),
+  pickFiles: () => call<AddResult>("doc:pick"),
+  initialFiles: () => call<string[]>("doc:initial"),
+
+  onChanged: (handler) => {
+    const listener = (_event: unknown, docs: DocView[]): void => handler(docs);
+    ipcRenderer.on("doc:changed", listener);
+    return () => ipcRenderer.removeListener("doc:changed", listener);
+  },
+
+  pickOutputDir: () => call<string | null>("export:pickDir"),
+  exportMarkdown: (request) => call<ExportResult>("export:markdown", request),
+  reveal: (path) => call<string>("export:reveal", path),
+
+  addWatch: () => call<WatchFolder[]>("watch:add"),
+  removeWatch: (path) => call<WatchFolder[]>("watch:remove", path),
+
+  getSettings: () => call<Settings>("settings:get"),
+  setSettings: (patch: Partial<Settings>) => call<Settings>("settings:set", patch),
+
+  window: (action: WindowAction) => call<void>("window:action", action),
 };
 
 contextBridge.exposeInMainWorld("markExtract", api);

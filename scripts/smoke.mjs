@@ -41,7 +41,7 @@ if (failures.length > 0) {
 console.log("스모크 통과");
 console.log("  보안 설정: nodeIntegration=false, contextIsolation=true, sandbox=true");
 console.log("  색 토큰: 라이트/다크 계산값이 design/index.html 과 일치");
-console.log("  preload: window.markExtract 표면 확인 (version/convert/getFilePath)");
+console.log("  preload: window.markExtract 표면 확인 (목록·본문·추가·구독·내보내기·감시·설정)");
 console.log("  렌더러: 사이드바·목록·뷰어·인스펙터가 모두 그려짐, 콘솔 오류 없음");
 console.log("  변환: 시험 자료 4종이 UI 를 통해 변환되어 목록에 완료로 표시됨");
 console.log("  스크롤: 뷰어가 넘치고 스크롤됨, 창은 뷰포트 안");

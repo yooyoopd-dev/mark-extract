@@ -1,8 +1,11 @@
-# Windows 동작 확인용 디버그 빌드.
+# Windows 빌드와 릴리스.
 #
 # 개발은 리눅스 컨테이너에서 하지만 제품은 Windows 단일 실행 파일이다. 동봉 JRE
-# 와 한글 인코딩은 Windows 에서 확인되어야 의미가 있어, 여기서 빌드해 아티팩트로
-# 올린다. 내려받아 직접 실행해 보면 된다.
+# 와 한글 인코딩은 Windows 에서 확인되어야 의미가 있어, 여기서 빌드한다.
+#
+# 검증 두 판이 모두 통과하면 프리릴리스로 게시한다. 아티팩트는 90일 뒤 사라지고
+# 로그인해야 받을 수 있지만 릴리스는 남고 링크 하나로 받는다 — 사내 PC 에서
+# 확인해야 하는 프로젝트라 이 차이가 크다.
 name: build
 
 on:
@@ -46,7 +49,7 @@ jobs:
       - run: npm run jre
 
       # Electron 창을 띄우려면 디스플레이가 있어야 한다.
-      - name: 검증 (토큰 · 빌드 · 셸 스모크 · PDF)
+      - name: 검증 (토큰 · 빌드 · 셸 스모크 · 파서 · 큐)
         run: xvfb-run -a npm run verify
 
       - uses: actions/upload-artifact@v4
@@ -155,3 +158,70 @@ jobs:
           name: MarkExtract-debug-${{ github.sha }}
           path: dist/*.exe
           if-no-files-found: error
+
+  release:
+    name: 프리릴리스 게시
+    needs: [verify-linux, debug-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 릴리스를 만들려면 쓰기 권한이 필요하다. 이 job 에만 준다.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 빌드 결과 내려받기
+        uses: actions/download-artifact@v4
+        with:
+          name: MarkExtract-debug-${{ github.sha }}
+          path: release
+
+      - name: 자체 점검 결과 내려받기
+        uses: actions/download-artifact@v4
+        with:
+          name: parser-verify-${{ github.sha }}
+          path: verify
+
+      - name: 릴리스 노트 작성
+        id: notes
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}-build.${{ github.run_number }}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "title=Mark Extract ${version} (빌드 ${{ github.run_number }})" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "정식 배포가 아닌 **동작 확인용 빌드**입니다. 커밋 \`${GITHUB_SHA::7}\` 에서 나왔습니다."
+            echo
+            echo "## 받는 법"
+            echo
+            echo "아래 \`MarkExtract-${version}.exe\` 를 내려받아 그대로 실행합니다. 설치 과정이 없고"
+            echo "Java 를 따로 깔지 않아도 됩니다 — 경량 JRE 가 실행 파일 안에 들어 있습니다."
+            echo
+            echo "서명하지 않은 실행 파일이라 SmartScreen 이 막을 수 있습니다."
+            echo "\"추가 정보\" → \"실행\" 으로 넘어갑니다."
+            echo
+            echo "## 확인된 것"
+            echo
+            echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 5종, 변환 큐·감시 폴더·내보내기"
+            echo "- Windows: 동봉 JRE 로 한글 문서 5종 변환, 패키징 배치, 패키징된 앱 자체 점검"
+            echo
+            echo "## Windows 자체 점검 출력"
+            echo
+            echo '```'
+            cat verify/self-test-windows.txt 2>/dev/null || echo "(없음)"
+            echo '```'
+          } > release-notes.md
+
+      - name: 릴리스 게시
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.notes.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "${{ steps.notes.outputs.title }}" \
+            --notes-file release-notes.md \
+            --prerelease \
+            release/*.exe

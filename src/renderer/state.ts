@@ -1,28 +1,19 @@
 /**
  * 렌더러 상태.
  *
- * 문서 목록은 아직 렌더러가 들고 있다. 5단계에서 main 의 변환 큐로 옮기면서
- * 감시 폴더와 영속화가 붙는다.
+ * 문서 목록은 main 이 들고 있다 (docs/design/01-architecture.md). 여기 있는
+ * `docs` 는 main 이 보낸 스냅샷의 사본일 뿐이라 렌더러가 고치지 않는다 —
+ * 즐겨찾기든 상태든 IPC 로 부탁하고 돌아온 스냅샷을 다시 그린다.
+ *
+ * 마크다운 본문은 스냅샷에 싣지 않는다(문서당 수백 KB). 선택한 문서 것만
+ * doc:markdown 으로 따로 받아 `body` 에 둔다.
  */
-import type { ParseResult } from "../shared/parse";
+import type { DocKind, DocOptions, DocStatus, DocView, WatchFolder } from "../shared/doc";
 
-export type DocStatus = "queued" | "run" | "done" | "failed";
-export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx";
+export type { DocKind, DocOptions, DocStatus, DocView, WatchFolder };
+export type Doc = DocView;
 export type Tab = "render" | "source" | "log";
 export type Sort = "modified" | "name" | "size";
-
-export interface Doc {
-  readonly id: string;
-  readonly name: string;
-  readonly path: string;
-  readonly kind: DocKind;
-  readonly size: number;
-  status: DocStatus;
-  star: boolean;
-  /** 변환 결과. 아직 돌리지 않았으면 null */
-  result: ParseResult | null;
-  addedAt: number;
-}
 
 export interface State {
   view: string;
@@ -34,6 +25,17 @@ export interface State {
   theme: "system" | "light" | "dark";
   /** 좁은 창에서 목록/뷰어 중 무엇을 보일지 */
   pane: "list" | "viewer";
+  watch: WatchFolder[];
+  /** 선택한 문서의 본문. key 가 어긋나면 낡은 것이다. */
+  body: { key: string; markdown: string } | null;
+  /**
+   * 인스펙터에서 만졌지만 아직 재변환하지 않은 옵션. 원본과 다르면 뷰어 위에
+   * 경고 띠가 뜬다.
+   */
+  draft: { id: string; options: DocOptions } | null;
+  /** 내보내기 기본값. 설정에서 받아 온다. */
+  outputDir: string | null;
+  frontmatter: boolean;
 }
 
 export const docs: Doc[] = [];
@@ -47,6 +49,27 @@ export const state: State = {
   tab: "render",
   theme: "system",
   pane: "list",
+  watch: [],
+  body: null,
+  draft: null,
+  outputDir: null,
+  frontmatter: true,
+};
+
+export function setDocs(next: readonly Doc[]): void {
+  docs.length = 0;
+  docs.push(...next);
+}
+
+/**
+ * 본문 캐시 열쇠. 재변환하면 상태가 queued → run → done 으로 지나가므로 열쇠가
+ * 바뀌고, 그래서 낡은 본문을 다시 쓰지 않는다.
+ */
+export const bodyKey = (doc: Doc): string => `${doc.id}:${doc.status}`;
+
+export const markdown = (): string => {
+  const doc = getDoc(state.selected);
+  return doc && state.body?.key === bodyKey(doc) ? state.body.markdown : "";
 };
 
 export const KIND_LABEL: Record<DocKind, string> = {
@@ -64,30 +87,19 @@ export const STATUS = {
   failed: { label: "실패", icon: "i-alert", cls: "failed" },
 } as const satisfies Record<DocStatus, { label: string; icon: string; cls: string }>;
 
-/** 확장자로 짐작한다. 실제 판별은 main 이 매직 바이트로 하고, 결과에 따라 갱신된다. */
-export function kindOf(name: string): DocKind | null {
-  const ext = name.toLowerCase().split(".").pop() ?? "";
-  return ext === "pdf" || ext === "docx" || ext === "xlsx" || ext === "xls" || ext === "pptx" ? ext : null;
-}
-
-let seq = 0;
-export function addDoc(path: string, name: string, size: number, kind: DocKind): Doc {
-  const doc: Doc = {
-    id: `d${++seq}`,
-    name,
-    path,
-    kind,
-    size,
-    status: "queued",
-    star: false,
-    result: null,
-    addedAt: Date.now(),
-  };
-  docs.push(doc);
-  return doc;
-}
-
 export const getDoc = (id: string | null): Doc | null => docs.find((d) => d.id === id) ?? null;
+
+/** 인스펙터가 보여 줄 옵션 — 손댄 것이 있으면 그것, 없으면 저장된 것. */
+export function effectiveOptions(doc: Doc): DocOptions {
+  return state.draft?.id === doc.id ? state.draft.options : doc.options;
+}
+
+/** 손댄 옵션이 저장된 것과 실제로 다른가. 같은 값으로 되돌리면 경고 띠가 사라진다. */
+export function isDirty(doc: Doc): boolean {
+  if (state.draft?.id !== doc.id) return false;
+  const keys = ["tableMethod", "includeHeaderFooter", "imageOutput", "pages"] as const;
+  return keys.some((k) => state.draft?.options[k] !== doc.options[k]);
+}
 
 export const counts = () => ({
   queue: docs.filter((d) => d.status === "queued" || d.status === "run").length,
@@ -130,11 +142,13 @@ export function visibleDocs(): Doc[] {
   const def = viewDef(state.view);
   const q = state.query.trim().toLowerCase();
 
+  // 검색은 이름과 미리보기까지만 본다. 본문 전체는 렌더러에 없다 — 전문 검색이
+  // 필요해지면 main 에 채널을 하나 더 여는 쪽이 맞다.
   const list = docs.filter(
     (d) =>
       def.test(d) &&
       (state.status === "all" || d.status === state.status) &&
-      (!q || d.name.toLowerCase().includes(q) || (d.result?.markdown ?? "").toLowerCase().includes(q)),
+      (!q || d.name.toLowerCase().includes(q) || d.snippet.toLowerCase().includes(q)),
   );
 
   if (state.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "ko"));

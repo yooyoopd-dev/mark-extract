@@ -16,14 +16,6 @@ function timeLabel(at: number): string {
   return new Date(at).toLocaleDateString("ko-KR");
 }
 
-/** 본문 미리보기. 변환 전이면 안내를, 실패면 사유를 보인다. */
-function snippet(doc: Doc): string {
-  if (doc.status === "failed") return doc.result?.error?.message ?? "변환에 실패했습니다.";
-  if (doc.status === "run") return "변환하는 중…";
-  if (!doc.result) return "대기 중입니다. 변환을 시작하세요.";
-  return doc.result.markdown.replace(/[#>|*`]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
-}
-
 function card(doc: Doc): string {
   const status = STATUS[doc.status];
   return `
@@ -33,7 +25,7 @@ function card(doc: Doc): string {
         <span class="doc-name od-truncate">${esc(doc.name)}</span>
         ${doc.star ? `<span class="doc-star">${icon("i-star", "icon icon-sm")}</span>` : ""}
       </div>
-      <p class="doc-snip od-clamp-2">${esc(snippet(doc))}</p>
+      <p class="doc-snip od-clamp-2">${esc(doc.snippet)}</p>
       <div class="doc-foot">
         <span class="st ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
         <span class="doc-meta">${sizeLabel(doc.size)}</span>

@@ -448,3 +448,9 @@ legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-
 .insp-actions { --od-gap: 8px; }
 .log-head { --od-gap: 8px; margin-bottom: 12px; }
 .log-note { font-size: 12.5px; color: var(--text-secondary); }
+
+/* 감시 폴더 목록 (5단계). 원본에는 "감시 폴더 추가" 버튼만 있고 목록이 없었다.
+   .nav-item 의 모양을 그대로 쓰고, 해제 버튼만 hover·focus 에서 드러낸다. */
+.watch-item .icon { flex: none; color: var(--text-secondary); }
+.watch-drop { flex: none; width: 20px; height: 20px; opacity: 0; }
+.watch-item:hover .watch-drop, .watch-drop:focus-visible { opacity: 1; }

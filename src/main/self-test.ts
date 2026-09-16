@@ -13,7 +13,7 @@
 import { app } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { convert } from "./ipc";
+import { convert } from "./convert";
 import { probe, resolveJar, resolveJava } from "./parsers/pdf-opendataloader";
 
 const SAMPLES = ["sample-ko.pdf", "sample-ko.docx", "sample-ko.xlsx", "sample-ko.xls", "sample-ko.pptx"];

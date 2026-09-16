@@ -21,7 +21,7 @@ app.commandLine.appendSwitch("disable-gpu-compositing");
 const { mkdirSync, writeFileSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { createMainWindow } = require("../out/main/window.js");
-const { registerIpc } = require("../out/main/ipc.js");
+const { broadcastChanges, registerIpc } = require("../out/main/ipc.js");
 
 const ROOT = join(__dirname, "..");
 const SHOTS = join(ROOT, "out/smoke");
@@ -79,8 +79,10 @@ app.whenReady().then(async () => {
 
   try {
     mkdirSync(SHOTS, { recursive: true });
-    // 실제 앱과 같은 초기화. 창만 띄우면 IPC 가 없어 렌더러가 절반만 산다.
+    // 실제 앱과 같은 초기화. 창만 띄우면 IPC 가 없어 렌더러가 절반만 살고,
+    // broadcastChanges() 가 없으면 큐가 진행돼도 화면이 갱신되지 않는다.
     registerIpc();
+    broadcastChanges();
     const win = createMainWindow();
     win.webContents.on("console-message", (event) => {
       if (event.level === "error") consoleErrors.push(String(event.message ?? "").slice(0, 200));
@@ -101,7 +103,7 @@ app.whenReady().then(async () => {
         var timer = setInterval(function () {
           var cards = document.querySelectorAll("#docList .doc").length;
           var done = document.querySelectorAll("#docList .st.done").length;
-          if ((cards > 0 && done === cards) || ++tries > 100) {
+          if ((cards > 0 && done === cards) || ++tries > 400) {
             clearInterval(timer);
             resolve({ cards: cards, done: done });
           }
@@ -114,10 +116,12 @@ app.whenReady().then(async () => {
 
     // 2. preload 표면과 렌더러 모듈 체인 — 테마 캡처보다 먼저 본다.
     //    모듈이 깨졌으면 여기서 정확한 사유가 나온다.
+    const SURFACE = ["version", "getFilePath", "list", "markdown", "add", "onChanged", "exportMarkdown", "addWatch", "getSettings", "window"];
     const api = await win.webContents.executeJavaScript(
-      "['version','getFilePath','pickFiles','convert','window'].map((k) => typeof window.markExtract?.[k]).join(',')",
+      `${JSON.stringify(SURFACE)}.map((k) => typeof window.markExtract?.[k]).join(',')`,
     );
-    if (api !== "string,function,function,function,function") failures.push(`window.markExtract 표면이 다름 (${api})`);
+    const wantApi = ["string", ...SURFACE.slice(1).map(() => "function")].join(",");
+    if (api !== wantApi) failures.push(`window.markExtract 표면이 다름 (${api})`);
 
     // 렌더러 ES 모듈 체인이 실제로 실행됐는지. 여기가 비면 import 가 깨진 것이다.
     // JS 가 그리는 네 영역이 모두 채워져야 한다.

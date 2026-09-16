@@ -17,7 +17,7 @@ const require = createRequire(import.meta.url);
 // 어댑터가 electron 의 app.isPackaged 만 본다. 개발 경로로 풀리게 해 둔다.
 require.cache[require.resolve("electron")] = { exports: { app: { isPackaged: false } } };
 
-const { convert } = require(join(root, "out/main/ipc.js"));
+const { convert } = require(join(root, "out/main/convert.js"));
 const { probe } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 const { detectFormat } = require(join(root, "out/main/detect-format.js"));
 
