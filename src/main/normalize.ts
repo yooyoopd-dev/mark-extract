@@ -1,7 +1,12 @@
 /**
  * 마크다운 후처리 (docs/design/01-architecture.md).
  *
- * 가장 중요한 일은 CJK 를 아는 줄 잇기다. opendataloader 는 PDF 의 줄바꿈에서
+ * 두 가지를 따로 둔다.
+ *
+ *   normalizeMarkdown  모든 어댑터가 쓰는 공통 정리
+ *   joinWrappedLines   PDF 전용 — 아래 이유로 다른 포맷에 쓰면 안 된다
+ *
+ * 줄 잇기는 CJK 를 안다. opendataloader 는 PDF 의 줄바꿈에서
  * 문단을 이을 때 공백을 넣는데, 영어에서는 맞고 한글에서는 틀리다. 실측 예:
  *
  *   원문      … English가 섞여 있으며, 제목 계층과 …
@@ -56,10 +61,23 @@ export function joinWrappedLines(markdown: string): string {
   return out.join("\n");
 }
 
-/** 어댑터가 내놓은 마크다운을 앱이 쓰는 모양으로 다듬는다. */
+/**
+ * 어댑터가 내놓은 마크다운을 앱이 쓰는 모양으로 다듬는다. 줄 잇기는 하지 않는다.
+ *
+ * PDF 만 joinWrappedLines 를 함께 쓴다. 다른 포맷에 쓰면 안 되는 이유는 접힌 줄이
+ * 없기 때문이다 — 예컨대 스프레드시트에서 연속한 두 줄은 서로 다른 셀이고, 이으면
+ * 별개 값이 한 줄로 뭉개진다.
+ *
+ *   시트가 둘 이상일 때 모두 나오는지 본다.
+ *   English and 한국어 mixed.
+ *     → 이으면: 시트가 둘 이상일 때 모두 나오는지 본다. English and 한국어 mixed.
+ */
 export function normalizeMarkdown(markdown: string): string {
   return (
-    joinWrappedLines(markdown.replace(/\r\n?/g, "\n"))
+    markdown
+      .replace(/\r\n?/g, "\n")
+      // 줄 끝 공백은 마크다운에서 강제 개행이라 의도치 않게 걸린다
+      .replace(/[ \t]+$/gm, "")
       // 빈 줄이 셋 이상이면 둘로
       .replace(/\n{3,}/g, "\n\n")
       .trim() + "\n"

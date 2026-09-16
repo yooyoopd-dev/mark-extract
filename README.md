@@ -14,7 +14,7 @@
 
 ## 상태
 
-[로드맵](docs/design/06-roadmap.md) 8단계 중 **2단계까지 완료**. PDF → Markdown 변환이 동작한다. Office·PPTX 어댑터와 LLM 엔진, 본 UI는 아직 없다.
+[로드맵](docs/design/06-roadmap.md) 8단계 중 **3단계까지 완료**. PDF · DOCX · XLSX · XLS · PPTX 를 Markdown 으로 변환한다. LLM 엔진과 본 UI는 아직 없다.
 
 - **설계 문서** — [`docs/design/`](docs/design/)
 - **디자인 원본 (시각적 계약)** — [`design/`](design/)
@@ -32,8 +32,8 @@ npm start           # 앱 실행
 변환이 되는지 빠르게 보려면:
 
 ```
-npm start -- --self-test            # 함께 넣어 둔 한글 시험 자료
-npm start -- --self-test 내문서.pdf
+npm start -- --self-test            # 함께 넣어 둔 시험 자료 5종 전부
+npm start -- --self-test 내문서.docx
 ```
 
 | 스크립트 | 내용 |
@@ -43,7 +43,7 @@ npm start -- --self-test 내문서.pdf
 | `build` | 토큰 검사 → `tsc` → 렌더러 정적 파일 복사 |
 | `smoke` | Electron을 띄워 보안 설정·토큰·preload·렌더러 모듈 확인, 스크린샷 저장 |
 | `resources` / `jre` | JAR 복사 / 경량 JRE 생성 |
-| `verify:pdf` | 한글 PDF 변환 단언 15개 |
+| `verify:parsers` | 다섯 형식 변환 단언 52개 |
 | `dist:win` | Windows portable exe 빌드 |
 
 `resources/`(JRE·JAR)는 빌드 산출물이라 git 에 없다. `npm run resources && npm run jre` 로 만든다.

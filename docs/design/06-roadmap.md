@@ -60,15 +60,28 @@ Electron 프로젝트 초기화, 3계층 분리, `design/index.html`에서 토�
 
 **Windows 확인 경로**: `.github/workflows/build.yml` 의 `debug-windows` job 이 Windows JRE 로 변환을 검증하고 portable exe 를 아티팩트로 올린다. 사용자가 내려받아 `MarkExtract.exe --self-test` 또는 GUI 에 PDF 를 떨어뜨려 확인한다.
 
-## 3. Office · PPTX 어댑터
+## 3. Office · PPTX 어댑터 ✅ 완료
 
 kordoc 연결(`--omit=optional`), PPTX 자체 구현.
 
-**검증**
-- DOCX / XLSX / XLS / PPTX 각 1건이 표와 제목 계층을 유지한 채 변환된다
-- PPTX에서 슬라이드 경계·발표자 노트·표가 나온다
-- kordoc의 경고·오류 코드가 UI 문구로 매핑된다
-- 매직 바이트 판별이 확장자가 틀린 파일에서도 맞는다
+**검증 결과** — `npm run verify:parsers` 가 단언 **52개**를 돌린다.
+
+| 기준 | 결과 |
+|---|---|
+| DOCX/XLSX/XLS/PPTX 가 표·제목 계층을 유지한다 | 통과 |
+| PPTX 에 슬라이드 경계·발표자 노트·표가 나온다 | 통과 |
+| kordoc 오류 코드가 UI 문구로 매핑된다 | 통과 (`ErrorCode` → 문구·버튼 표) |
+| 매직 바이트 판별이 확장자가 틀려도 맞는다 | 통과 (`.pdf` 로 이름 붙인 docx → docx) |
+| 패키징된 앱에서 다섯 형식이 모두 변환된다 | 통과 (5/5, `--self-test`) |
+
+**실측으로 드러난 것**
+
+1. **줄 잇기를 PDF 전용으로 분리했다.** 스프레드시트에서 연속한 두 줄은 서로 다른 셀이라, PDF 용 줄 잇기를 적용하면 별개 값이 한 줄로 뭉개진다. `normalizeMarkdown`(공통)과 `joinWrappedLines`(PDF 전용)를 나눴다
+2. **`.npmrc` 의 `omit=optional` 은 쓸 수 없다.** TypeScript 7 의 플랫폼 바이너리가 optionalDependencies 라 tsc 가 깨진다. 대신 패키징 단계에서 걸러내 **asar 75MB → 25MB**
+3. **PPTX 제목이 내용 뒤로 밀렸다.** 자리표시자가 `a:off` 를 생략하고 레이아웃에서 위치를 물려받는데 XML 만 읽는 우리는 알 수 없다. 제목을 위치와 무관하게 맨 앞으로 보낸다
+4. **PPTX 도형은 `p:spTree` 직계 자식만** 본다. `getElementsByTagNameNS` 는 모든 자손을 훑어 그룹 안 도형이 중복된다
+
+**알려진 제약**: 목록 마커가 사라지는 것은 PDF 뿐 아니라 **DOCX 도 마찬가지**다. 불릿이 `-` 없는 문단으로 풀린다.
 
 ## 4. UI 이식
 

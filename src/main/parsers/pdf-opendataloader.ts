@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
-import { normalizeMarkdown } from "../normalize";
+import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
 const ENGINE = "로컬 · opendataloader";
@@ -221,7 +221,8 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
       };
     }
 
-    const markdown = normalizeMarkdown(await readFile(join(dir, first), "utf8"));
+    // --keep-line-breaks 로 받았으므로 문단 잇기는 우리 몫이다.
+    const markdown = normalizeMarkdown(joinWrappedLines(await readFile(join(dir, first), "utf8")));
 
     if (markdown.trim() === "") {
       return {

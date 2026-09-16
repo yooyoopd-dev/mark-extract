@@ -82,8 +82,8 @@ jobs:
         run: npm run jre
 
       # 이 job 의 핵심. Windows 에서 동봉 JRE 로 한글 PDF 가 변환되는지 본다.
-      - name: PDF 변환 검증 (Windows)
-        run: npm run verify:pdf
+      - name: 파서 검증 (Windows)
+        run: npm run verify:parsers
 
       - name: portable exe 빌드
         run: npm run dist:win

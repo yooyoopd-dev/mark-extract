@@ -6,7 +6,7 @@
  */
 import type { ParseResult } from "../../shared/parse";
 
-const EMPTY = "PDF 파일을 이 영역에 떨어뜨리세요.";
+const EMPTY = "PDF · DOCX · XLSX · XLS · PPTX 를 이 영역에 떨어뜨리세요.";
 
 export function mountDebugView(host: HTMLElement): void {
   host.innerHTML = `

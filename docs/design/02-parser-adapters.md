@@ -129,9 +129,31 @@ const result = await parseDocx(buffer, { pages, password, onProgress, classifyTa
 
 `parse()` 자동 판별 대신 **포맷별 함수를 직접 부른다.** 우리가 이미 매직 바이트로 포맷을 확정했고, 자동 판별이 HWP·PDF 경로로 흘러가는 것을 막기 위해서다 (결정 5로 HWP는 미지원이고 PDF는 opendataloader가 맡는다).
 
-### 설치
+**줄 잇기(`joinWrappedLines`)를 쓰지 않는다 — 3단계 실측.** kordoc 출력에는 접힌 줄이 없다. 그런데 스프레드시트에서 연속한 두 줄은 서로 다른 셀이라, PDF 용 줄 잇기를 적용하면 별개 값이 한 줄로 뭉개진다.
 
-`npm install kordoc --omit=optional`. optional 의존성(`onnxruntime-node`, `sharp`, `pdfjs-dist`, `@hyzyla/pdfium`, `@huggingface/transformers`)은 OCR·PDF·렌더링용이며 **우리가 쓰는 OOXML 경로에는 불필요**하다. 빼면 네이티브 바이너리가 사라져 Electron 재빌드·서명 문제도 없어진다. 남는 의존성은 `jszip`, `cfb`, `@xmldom/xmldom`, `markdown-it`, `commander`, `zod` — 전부 순수 JS다.
+```
+시트가 둘 이상일 때 모두 나오는지 본다.      ← A1
+English and 한국어 mixed.                    ← A2
+  → 이으면: 시트가 둘 이상일 때 모두 나오는지 본다. English and 한국어 mixed.
+```
+
+그래서 `normalizeMarkdown`(공통 정리)과 `joinWrappedLines`(PDF 전용)를 나눠 두고 PDF 어댑터만 둘을 조합한다.
+
+**오류 필드 모양**: kordoc 의 실패 결과는 사람이 읽을 메시지를 `error`(문자열)에, 분류를 `code` 에 따로 담는다. `error.code` 가 아니다.
+
+### 설치와 패키징 — 3단계 실측
+
+`.npmrc` 에 `omit=optional` 을 두는 방법은 **쓸 수 없다.** TypeScript 7 의 플랫폼 바이너리(`@typescript/typescript-linux-x64` 등)가 optionalDependencies 라 tsc 가 통째로 깨진다.
+
+대신 **패키징 단계에서 걸러낸다.** kordoc 이 runtime dependency 라 그 의존성 트리가 asar 에 통째로 들어오는데, 우리가 쓰는 것은 DOCX·XLSX·XLS 경로뿐이다.
+
+| 제외 | 이유 | 크기 |
+|---|---|---|
+| `pdfjs-dist`, `@hyzyla/pdfium` | kordoc 의 PDF 경로. PDF 는 opendataloader 몫 | 48MB |
+| `@modelcontextprotocol/**`, `hono`, `@hono/**`, `jose`, `zod-to-json-schema` | kordoc 의 MCP 서버(`kordoc-mcp`). 라이브러리를 직접 부른다 | 약 7MB |
+| `onnxruntime-node`, `sharp`, `@huggingface/**` | OCR·이미지 처리. 설치되지도 않지만 막아 둔다 | — |
+
+**asar 75MB → 25MB.** 제외가 안전한지는 `--self-test` 가 패키징된 앱에서 다섯 형식을 모두 돌려 확인한다 — 어댑터가 실제로는 쓰고 있었다면 거기서 드러난다.
 
 ### 경고·오류 매핑
 
@@ -166,6 +188,8 @@ kordoc은 PPTX를 지원하지 않는다 (`FileType`에 없고 `presentationml` 
 
 `jszip`으로 `.pptx`(ZIP)를 열고 `@xmldom/xmldom`으로 XML을 읽는다. 둘 다 kordoc이 이미 가져오는 의존성이라 추가 설치가 없다.
 
+**도형은 `p:spTree` 의 직계 자식만 본다.** `getElementsByTagNameNS` 는 모든 자손을 훑으므로 그룹 안의 도형까지 중복으로 잡힌다. 구조는 `p:sld > p:cSld > p:spTree > p:sp` 다.
+
 읽는 파트:
 - `ppt/presentation.xml` — 슬라이드 순서 (`p:sldIdLst`)
 - `ppt/slides/slideN.xml` — 도형
@@ -178,7 +202,7 @@ kordoc은 PPTX를 지원하지 않는다 (`FileType`에 없고 `presentationml` 
 | 요소 | Markdown |
 |---|---|
 | 슬라이드 경계 | `<!-- Slide number: N -->` |
-| 도형 정렬 | 위→아래, 같은 높이면 왼쪽→오른쪽 (`a:off` 의 `y`, `x`) |
+| 도형 정렬 | **제목 먼저**, 그 다음 위→아래·왼쪽→오른쪽 (`a:off` 의 `y`, `x`) |
 | 제목 자리표시자 | `# {텍스트}` |
 | 일반 텍스트 상자 | 문단 그대로 |
 | 표 (`a:tbl`) | Markdown 표. 첫 행을 헤더로 |
@@ -188,6 +212,11 @@ kordoc은 PPTX를 지원하지 않는다 (`FileType`에 없고 `presentationml` 
 | 처리 못 한 요소 | 건너뛰고 `UNSUPPORTED_ELEMENT` 경고 |
 
 markitdown은 표를 HTML로 만든 뒤 Markdown으로 변환하지만, 우리는 **바로 Markdown 표를 만든다.** 중간 HTML 변환기를 들일 이유가 없다. 셀 안 줄바꿈은 `<br>`로, 파이프는 `\|`로 이스케이프한다.
+
+**markitdown 과 다르게 한 것 둘 — 3단계 실측**
+
+1. **제목을 위치와 무관하게 맨 앞으로 보낸다.** 자리표시자는 `a:off` 를 생략하고 슬라이드 레이아웃에서 위치를 물려받는 일이 흔하다. markitdown 은 python-pptx 가 상속을 풀어 준 값을 쓰지만 우리는 XML 만 읽으므로 알 수 없어, 제목이 표·본문 뒤로 밀렸다. 슬라이드 제목은 그 슬라이드의 머리이므로 먼저 내보내는 쪽이 맞다.
+2. **문단을 빈 줄로 나눈다.** markitdown 은 텍스트 프레임의 문단을 줄바꿈으로만 잇는데, 마크다운에서는 그러면 한 덩어리로 렌더된다.
 
 차트가 캐시 데이터를 갖고 있지 않거나 지원하지 않는 종류면 `[unsupported chart]`를 남기고 경고를 단다.
 
