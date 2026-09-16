@@ -14,7 +14,7 @@
 
 ## 상태
 
-[로드맵](docs/design/06-roadmap.md) 8단계 중 **3단계까지 완료**. PDF · DOCX · XLSX · XLS · PPTX 를 Markdown 으로 변환한다. LLM 엔진과 본 UI는 아직 없다.
+[로드맵](docs/design/06-roadmap.md) 8단계 중 **4단계까지 완료**. PDF · DOCX · XLSX · XLS · PPTX 를 Markdown 으로 변환하고, 디자인 원본을 이식한 UI 가 동작한다. 감시 폴더·내보내기·LLM 엔진은 아직 없다.
 
 - **설계 문서** — [`docs/design/`](docs/design/)
 - **디자인 원본 (시각적 계약)** — [`design/`](design/)
@@ -34,6 +34,7 @@ npm start           # 앱 실행
 ```
 npm start -- --self-test            # 함께 넣어 둔 시험 자료 5종 전부
 npm start -- --self-test 내문서.docx
+npm start -- 내문서.pdf 보고서.docx  # 앱을 띄우면서 바로 열기
 ```
 
 | 스크립트 | 내용 |

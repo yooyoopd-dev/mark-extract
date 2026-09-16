@@ -14,6 +14,9 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 480,
     show: false,
     backgroundColor: "#FFFFFF",
+    // 디자인이 Windows 캡션바를 직접 그린다 (design/index.html 의 .titlebar).
+    // 기본 프레임을 쓰면 캡션이 둘이 된다.
+    frame: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       // docs/design/01-architecture.md 가 고정한 값. 완화하지 않는다.

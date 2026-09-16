@@ -8,12 +8,16 @@
  * sandbox: true 라서 이 파일은 CommonJS 로 컴파일된다 (tsconfig.node.json).
  */
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { MarkExtractApi, ParseResult } from "../shared/api";
+import type { MarkExtractApi, ParseResult, PickedFile, WindowAction } from "../shared/api";
 
 const api: MarkExtractApi = {
   version: process.versions.electron,
   getFilePath: (file) => webUtils.getPathForFile(file),
+  pickFiles: () => ipcRenderer.invoke("doc:pick") as Promise<PickedFile[]>,
+  initialFiles: () => ipcRenderer.invoke("doc:initial") as Promise<PickedFile[]>,
   convert: (filePath) => ipcRenderer.invoke("doc:convert", filePath) as Promise<ParseResult>,
+  // 채널은 하나지만 동작은 세 가지로 제한된다. main 이 값을 검사한다.
+  window: (action: WindowAction) => ipcRenderer.invoke("window:action", action) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld("markExtract", api);

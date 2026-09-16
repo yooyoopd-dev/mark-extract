@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="light">
 <head>
 <meta charset="utf-8">
 <!-- 앱은 원격 콘텐츠를 싣지 않는다. 기본값을 전부 닫고 자기 자원만 허용한다. -->
@@ -7,30 +7,256 @@
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'">
 <title>Mark Extract</title>
 <link rel="stylesheet" href="./styles/tokens.css">
+<link rel="stylesheet" href="./styles/primitives.css">
 <link rel="stylesheet" href="./styles/base.css">
 <link rel="stylesheet" href="./styles/layout.css">
+<link rel="stylesheet" href="./styles/components.css">
 </head>
 <body>
-<div class="app">
+
+<svg class="sr" aria-hidden="true"><defs>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 12h5l2 3h4l2-3h5"/><path d="M5.4 4.5h13.2a2 2 0 0 1 1.9 1.4L22 12v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5l1.5-6.1a2 2 0 0 1 1.9-1.4Z"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 2.6 17.1A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.9L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 16.5h.01"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2 2 0 0 1 5 5.5h3.6a2 2 0 0 1 1.5.7l1 1.3H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 7h14"/><path d="M4 12h9"/><path d="M4 17h5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 19h16"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-13.7-5L3 9"/><path d="M3 4v5h5"/><path d="M4 13a8 8 0 0 0 13.7 5L21 15"/><path d="M21 20v-5h-5"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M12 17v4"/><path d="m5.6 5.6 2.9 2.9"/><path d="m15.5 15.5 2.9 2.9"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m5.6 18.4 2.9-2.9"/><path d="m15.5 8.5 2.9-2.9"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M15 4.5v15"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5"/><path d="M12 19v2.5"/><path d="M4.2 4.2 6 6"/><path d="m18 18 1.8 1.8"/><path d="M2.5 12H5"/><path d="M19 12h2.5"/><path d="M4.2 19.8 6 18"/><path d="m18 6 1.8-1.8"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5 13.8 9 19 10.8 13.8 12.6 12 18l-1.8-5.4L5 10.8 10.2 9Z"/><path d="M18.5 16.5 19 18l1.5.5L19 19l-.5 1.5L18 19l-1.5-.5L18 18Z"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14"/><path d="M5 15h14"/><path d="M10 4 8.5 20"/><path d="M15.5 4 14 20"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m9 17-5-5 5-5"/><path d="m15 7 5 5-5 5"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M9 10v9"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 14.3.9.5a1 1 0 0 1 .4 1.4l-1 1.7a1 1 0 0 1-1.3.4l-1-.4a7.6 7.6 0 0 1-1.8 1l-.2 1a1 1 0 0 1-1 .8h-2a1 1 0 0 1-1-.8l-.2-1a7.6 7.6 0 0 1-1.8-1l-1 .4a1 1 0 0 1-1.3-.4l-1-1.7a1 1 0 0 1 .4-1.4l.9-.5a7.4 7.4 0 0 1 0-2.1l-.9-.5a1 1 0 0 1-.4-1.4l1-1.7A1 1 0 0 1 6.4 8l1 .4a7.6 7.6 0 0 1 1.8-1l.2-1a1 1 0 0 1 1-.8h2a1 1 0 0 1 1 .8l.2 1c.6.3 1.2.6 1.8 1l1-.4a1 1 0 0 1 1.3.4l1 1.7a1 1 0 0 1-.4 1.4l-.9.5a7.4 7.4 0 0 1 0 2.1Z"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 2.5V6"/><path d="M14.5 2.5V6"/><path d="M9.5 18v3.5"/><path d="M14.5 18v3.5"/><path d="M2.5 9.5H6"/><path d="M2.5 14.5H6"/><path d="M18 9.5h3.5"/><path d="M18 14.5h3.5"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H11l-.5 8L19 10.5h-6.5Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9.5 7V5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7"/><path d="M6.5 7 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 19V8"/><path d="m7.5 12.5 4.5-4.5 4.5 4.5"/><path d="M4 5h16"/></symbol>
+</defs></svg>
+
+<div class="app" id="app" data-pane="list" data-sidebar="closed" data-inspector="closed">
+
+  <!-- ============== Windows 캡션바 ============== -->
   <header class="titlebar">
-    <span class="tb-name">Mark Extract</span>
-    <span class="tb-spacer"></span>
-    <button class="tb-tool" id="themeToggle" type="button" aria-pressed="false">
-      <span id="themeLabel">다크 모드</span>
+    <button class="icon-btn nav-toggle" id="navToggle" aria-label="탐색 사이드바 열기" aria-expanded="false">
+      <svg class="icon"><use href="#i-menu"/></svg>
     </button>
+    <div class="tb-brand">
+      <span class="tb-mark" aria-hidden="true">M</span>
+      <span class="tb-name">MarkExtract</span>
+    </div>
+    <nav class="tb-menu" aria-label="주 메뉴">
+      <button type="button">파일</button>
+      <button type="button">편집</button>
+      <button type="button">보기</button>
+      <button type="button">도움말</button>
+    </nav>
+    <div class="tb-drag"></div>
+    <div class="tb-right">
+      <button class="tb-tool" id="paletteOpen">
+        <svg class="icon icon-sm"><use href="#i-search"/></svg>
+        <span>검색 및 명령</span>
+        <kbd>Ctrl</kbd><kbd>K</kbd>
+      </button>
+      <button class="tb-tool" id="themeToggle" aria-pressed="false">
+        <svg class="icon icon-sm" id="themeIcon"><use href="#i-moon"/></svg>
+        <span id="themeLabel">다크 모드</span>
+      </button>
+      <div class="caption">
+        <button type="button" id="capMin" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+        <button type="button" id="capMax" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+        <button type="button" id="capClose" class="close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="m0 0 10 10M10 0 0 10"/></svg></button>
+      </div>
+    </div>
   </header>
 
+  <!-- ============== 워크스페이스 ============== -->
   <div class="workspace">
-    <aside class="sidebar"><div class="placeholder">사이드바</div></aside>
-    <section class="listpane"><div class="placeholder">문서 목록</div></section>
-    <main class="viewer"></main>
-    <aside class="inspector"><div class="placeholder">속성</div></aside>
+    <div class="scrim" id="scrim"></div>
+
+    <!-- 좌측 내비게이션 -->
+    <aside class="sidebar" aria-label="문서 탐색">
+      <nav class="nav od-scroll" id="nav"><!-- JS --></nav>
+      <div class="sidebar-foot">
+        <button class="watch-add" id="addWatch" disabled title="5단계에서 들어옵니다">
+          <svg class="icon"><use href="#i-plus"/></svg>
+          <span>감시 폴더 추가</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 중앙 리스트 -->
+    <section class="listpane" aria-label="문서 목록">
+      <div class="list-head">
+        <h1 class="list-title" id="listTitle">변환 큐</h1>
+        <button class="icon-btn" id="sortBtn" title="수정일 기준 정렬" aria-label="정렬 기준 변경">
+          <svg class="icon"><use href="#i-sort"/></svg>
+        </button>
+        <button class="icon-btn" id="addFile" title="파일 추가" aria-label="파일 추가">
+          <svg class="icon"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+      <div class="list-filter">
+        <div class="search">
+          <svg class="icon icon-sm"><use href="#i-search"/></svg>
+          <label class="sr" for="listSearch">문서 검색</label>
+          <input id="listSearch" type="text" placeholder="파일명 또는 본문 검색" autocomplete="off">
+          <button class="icon-btn tiny" id="clearSearch" hidden aria-label="검색어 지우기">
+            <svg class="icon icon-sm"><use href="#i-x"/></svg>
+          </button>
+        </div>
+        <div class="chips" role="group" aria-label="상태 필터">
+          <button class="chip" data-status="all" aria-pressed="true">전체</button>
+          <button class="chip" data-status="done" aria-pressed="false">완료</button>
+          <button class="chip" data-status="run" aria-pressed="false">변환중</button>
+          <button class="chip" data-status="queued" aria-pressed="false">대기</button>
+          <button class="chip" data-status="failed" aria-pressed="false">실패</button>
+        </div>
+      </div>
+      <div class="doclist od-scroll" id="docList" role="listbox" aria-label="문서" tabindex="0"><!-- JS --></div>
+    </section>
+
+    <!-- 메인 뷰어 -->
+    <main class="viewer" aria-label="변환 결과">
+      <div class="viewer-bar">
+        <button class="icon-btn back-to-list" id="backToList" aria-label="목록으로 돌아가기">
+          <svg class="icon"><use href="#i-left"/></svg>
+        </button>
+        <nav class="crumbs" id="crumbs" aria-label="현재 문서 경로"></nav>
+        <button class="icon-btn" id="starBtn" aria-label="즐겨찾기" aria-pressed="false"><svg class="icon"><use href="#i-star"/></svg></button>
+        <button class="icon-btn" id="reconvertBtn" title="재변환" aria-label="재변환"><svg class="icon"><use href="#i-refresh"/></svg></button>
+        <button class="icon-btn" id="copyBtn" title="Markdown 복사" aria-label="Markdown 복사"><svg class="icon"><use href="#i-copy"/></svg></button>
+        <button class="icon-btn" id="exportBtn" title="내보내기" aria-label="내보내기"><svg class="icon"><use href="#i-down"/></svg></button>
+        <span class="vbar-div" aria-hidden="true"></span>
+        <button class="icon-btn" id="deleteBtn" title="큐에서 제거" aria-label="큐에서 제거"><svg class="icon"><use href="#i-trash"/></svg></button>
+        <button class="icon-btn" id="moreBtn" title="더보기" aria-label="더보기"><svg class="icon"><use href="#i-more"/></svg></button>
+        <button class="icon-btn inspector-open" id="inspectorOpen" aria-label="속성 패널 열기"><svg class="icon"><use href="#i-panel"/></svg></button>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="결과 보기 방식">
+        <button class="tab" role="tab" id="tab-render" aria-controls="panel" aria-selected="true" data-tab="render">
+          <svg class="icon icon-sm"><use href="#i-eye"/></svg><span>렌더링</span>
+        </button>
+        <button class="tab" role="tab" id="tab-source" aria-controls="panel" aria-selected="false" data-tab="source" tabindex="-1">
+          <svg class="icon icon-sm"><use href="#i-code"/></svg><span>원본 Markdown</span>
+        </button>
+        <button class="tab" role="tab" id="tab-log" aria-controls="panel" aria-selected="false" data-tab="log" tabindex="-1">
+          <svg class="icon icon-sm"><use href="#i-code"/></svg><span>변환 로그</span><span class="n" id="warnCount"></span>
+        </button>
+      </div>
+
+      <div class="od-scroll" id="panelScroll">
+        <div id="dirtyBar"></div>
+        <div id="panel" role="tabpanel" aria-labelledby="tab-render"><!-- JS --></div>
+      </div>
+    </main>
+
+    <!-- 우측 인스펙터 -->
+    <aside class="inspector" aria-label="문서 속성 및 추출 옵션">
+      <div class="insp-head">
+        <svg class="icon"><use href="#i-gear"/></svg>
+        <h2>속성 및 추출 옵션</h2>
+        <button class="icon-btn insp-close" id="inspClose" aria-label="속성 패널 닫기">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="insp-body od-scroll" id="inspBody"><!-- JS --></div>
+    </aside>
   </div>
 
+  <!-- ============== 상태바 ============== -->
   <footer class="statusbar">
-    <span id="sbStatus">3단계 — PDF · DOCX · XLSX · XLS · PPTX 변환</span>
+    <button class="sb" id="sbWatch"><svg class="icon"><use href="#i-folder"/></svg><span id="sbWatchText">감시 폴더 없음</span></button>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-cpu"/></svg><span id="sbVersion">—</span></span>
+    <span class="sb"><span class="dot" id="sbDot"></span><span id="sbQueue">큐 대기 없음</span></span>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-zap"/></svg><span id="sbSpeed">—</span></span>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-sparkle"/></svg><span id="sbEngine">—</span></span>
+    <span class="sb-right">
+      <span class="sb" id="sbTokens"></span>
+      <button class="sb" id="sbZoom">110%</button>
+      <button class="sb" aria-label="설정"><svg class="icon"><use href="#i-gear"/></svg></button>
+    </span>
   </footer>
 </div>
+
+<!-- ============== 커맨드 팔레트 ============== -->
+<div class="overlay" id="paletteOverlay" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="명령 팔레트">
+    <div class="palette-in">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <label class="sr" for="paletteInput">명령 또는 문서 검색</label>
+      <input id="paletteInput" type="text" placeholder="문서 검색 또는 명령 실행…" autocomplete="off">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="palette-list" id="paletteList"></div>
+    <div class="palette-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
+      <span><kbd>Enter</kbd> 실행</span>
+      <span><kbd>Esc</kbd> 닫기</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============== 내보내기 다이얼로그 ============== -->
+<div class="overlay" id="exportOverlay" hidden>
+  <form class="dialog" id="exportForm" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">Markdown 내보내기</h2>
+    <p class="sub" id="exportSub"></p>
+    <div class="body">
+      <fieldset>
+        <legend>출력 형식</legend>
+        <label class="radio"><input type="radio" name="fmt" value="md" checked>
+          <span class="txt"><b>Markdown (.md)</b><span>사람이 읽고 편집하기 위한 단일 파일</span></span></label>
+        <label class="radio"><input type="radio" name="fmt" value="jsonl">
+          <span class="txt"><b>JSONL (.jsonl)</b><span>청크 단위 레코드 — RAG 인덱싱용</span></span></label>
+        <label class="radio"><input type="radio" name="fmt" value="clip">
+          <span class="txt"><b>클립보드에 복사</b><span>파일을 만들지 않고 바로 붙여넣기</span></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>포함 항목</legend>
+        <label class="check"><input type="checkbox" id="optFm" checked>
+          <span class="txt"><b>YAML 프런트매터</b><span>제목, 출처, 페이지 수 등 메타데이터</span></span></label>
+        <label class="check"><input type="checkbox" id="optImg" checked>
+          <span class="txt"><b>이미지 참조</b><span>추출된 이미지를 상대 경로로 기록</span></span></label>
+      </fieldset>
+      <div class="opt" id="pathRow">
+        <label for="exportPath">저장 위치</label>
+        <input id="exportPath" type="text" value="C:\Docs\Output">
+      </div>
+    </div>
+    <div class="foot">
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary">내보내기</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============== 드롭 오버레이 ============== -->
+<div class="drop" id="dropOverlay" hidden>
+  <div class="drop-in">
+    <svg class="icon"><use href="#i-upload"/></svg>
+    <b>여기에 놓아 변환 큐에 추가</b>
+    <span>PDF · DOCX · XLSX · PPTX 지원</span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 <script type="module" src="./app.js"></script>
 </body>
 </html>
