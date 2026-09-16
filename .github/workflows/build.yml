@@ -28,6 +28,13 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # ubuntu-24.04 러너는 AppArmor 로 비특권 user namespace 를 막는데, 그러면
+      # Chromium 샌드박스가 뜨지 못하고 Electron 이 SIGTRAP 으로 죽는다.
+      # --no-sandbox 로 우회하면 스모크가 확인하려던 sandbox: true 의 의미가
+      # 없어지므로 러너 쪽 제한을 푼다.
+      - name: Chromium 샌드박스 허용
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - run: npm ci
       - run: npm run resources
       - run: npm run jre

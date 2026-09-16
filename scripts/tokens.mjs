@@ -59,14 +59,17 @@ if (process.argv.includes("--check")) {
     console.error("tokens.css 가 없습니다. `npm run tokens` 를 실행하세요.");
     process.exit(1);
   }
+  // 줄 끝은 비교에서 뺀다. Windows 에서 core.autocrlf 로 체크아웃하면 CRLF 가
+  // 되는데, 그건 토큰이 어긋난 것이 아니다.
+  const eol = (text) => text.replace(/\r\n/g, "\n");
   const actual = readFileSync(TARGET, "utf8");
-  if (actual === expected) {
+  if (eol(actual) === eol(expected)) {
     const count = BLOCKS.reduce((n, b) => n + readTokens(readFileSync(SOURCE, "utf8"), b.selector).length, 0);
     console.log(`토큰 ${count}개가 design/index.html 과 일치합니다.`);
     process.exit(0);
   }
   console.error("tokens.css 가 design/index.html 과 어긋납니다:\n");
-  const [a, e] = [actual.split("\n"), expected.split("\n")];
+  const [a, e] = [eol(actual).split("\n"), eol(expected).split("\n")];
   for (let i = 0; i < Math.max(a.length, e.length); i++) {
     if (a[i] !== e[i]) console.error(`  ${i + 1}행\n    현재: ${a[i] ?? "(없음)"}\n    원본: ${e[i] ?? "(없음)"}`);
   }
