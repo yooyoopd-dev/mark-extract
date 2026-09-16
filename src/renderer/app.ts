@@ -5,6 +5,8 @@
  * data-theme 로 박고, 시스템 설정을 따를 때는 속성을 지워 prefers-color-scheme 에
  * 맡긴다.
  */
+import { mountDebugView } from "./views/debug.js";
+
 type Theme = "system" | "light" | "dark";
 
 const root = document.documentElement;
@@ -32,6 +34,9 @@ button.addEventListener("click", () => {
   current = dark ? "light" : "dark";
   apply(current);
 });
+
+const viewer = document.querySelector<HTMLElement>(".viewer");
+if (viewer) mountDebugView(viewer);
 
 // 스모크 테스트가 테마를 직접 지정할 수 있게 열어 둔다 (모듈 스코프라 이 노출이 없으면
 // 바깥에서 닿지 못한다). 설정 영속화는 6단계에서 들어온다.

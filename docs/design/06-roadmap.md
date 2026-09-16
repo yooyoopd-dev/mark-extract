@@ -33,11 +33,32 @@ Electron 프로젝트 초기화, 3계층 분리, `design/index.html`에서 토�
 
 `jdeps`로 모듈 결정 → `jlink` 스크립트 → PDF 어댑터 → 헬스 체크(`--export-options`).
 
-**검증**
-- **Java가 설치되지 않은** Windows에서 한글 PDF가 Markdown으로 변환된다
-- 제목 계층과 표가 살아남는다
-- 한글이 깨지지 않는다 (UTF-8)
-- 임시 디렉터리가 성공·실패·취소 모두에서 지워진다
+**검증 결과** — `npm run verify:pdf` 가 단언 15개를 돌린다.
+
+| 기준 | 결과 |
+|---|---|
+| 제목 계층과 표가 살아남는다 | 통과. H1·H2·H3, 표 헤더·구분행·내용 |
+| 한글이 깨지지 않는다 | 통과. UTF-8, 숫자·특수문자·따옴표 보존 |
+| 임시 디렉터리가 지워진다 | 통과. 성공·실패·취소 모두 `finally` 에서 |
+| 동봉 JRE 를 쓴다 | 통과. 개발 경로와 **패키징 경로(`process.resourcesPath`) 모두** |
+| Java 미설치 Windows | **CI 가 확인** — `debug-windows` job |
+
+**정한 것**
+
+- JAR 은 `@opendataloader/pdf` 를 devDependency 로 두고 빌드 때 `resources/lib/` 로 꺼낸다. 24MB 바이너리를 git 에 넣지 않으면서 `package-lock` 으로 버전을 고정한다. npm 래퍼 자체는 런타임에 쓰지 않는다 — 그건 PATH 의 `java` 를 찾는데 우리는 동봉 JRE 를 쓴다.
+- 결과는 stdout 이 아니라 파일로 받는다. `--to-stdout` 이 있지만 Windows 콘솔 코드페이지의 영향을 받을 여지가 있다.
+- 공유 타입(`ParseResult` 등)은 `src/shared/*.d.ts` 로 뒀다. 타입 선언뿐이라 main·preload·renderer 가 모두 쓰면서 어느 쪽에서도 JS 가 나오지 않는다.
+- 앱에 `--self-test` 를 넣었다. 패키징된 뒤에야 `process.resourcesPath` 경로가 검증되고, 사용자도 GUI 없이 명령 프롬프트에서 바로 확인할 수 있다.
+
+**실측으로 드러난 결함과 대응**
+
+1. **한글 줄 잇기** — 기본 출력이 `섞여 있 으며` 처럼 단어 가운데 공백을 넣는다. PDF 줄바꿈에서 문단을 이을 때 공백을 넣는 동작이 한글에선 틀리다. `--keep-line-breaks` 로 받아 CJK 를 보며 직접 잇도록 했다 (→ [02](02-parser-adapters.md#한글-줄-잇기--2단계-실측-이-단계의-핵심))
+2. **`--space-ratio` 는 올리면 안 된다** — 0.30 에서 정당한 공백까지 사라지고 원래 문제는 그대로다. UI 에 내보내지 않는다
+3. **목록 마커 소실** — 불릿이 `-` 없는 문단으로 풀린다. 엔진 한계이며 알려진 제약으로 문서화했다
+
+**실측치**: jlink JRE **54MB**(추정 45MB 였음), JAR 23.1MB, 변환 0.5초/1페이지.
+
+**Windows 확인 경로**: `.github/workflows/build.yml` 의 `debug-windows` job 이 Windows JRE 로 변환을 검증하고 portable exe 를 아티팩트로 올린다. 사용자가 내려받아 `MarkExtract.exe --self-test` 또는 GUI 에 PDF 를 떨어뜨려 확인한다.
 
 ## 3. Office · PPTX 어댑터
 

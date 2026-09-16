@@ -14,7 +14,7 @@
 
 ## 상태
 
-[로드맵](docs/design/06-roadmap.md) 8단계 중 **1단계(프로젝트 골격 + 디자인 토큰) 완료**. 파서·LLM·UI는 아직 없다.
+[로드맵](docs/design/06-roadmap.md) 8단계 중 **2단계까지 완료**. PDF → Markdown 변환이 동작한다. Office·PPTX 어댑터와 LLM 엔진, 본 UI는 아직 없다.
 
 - **설계 문서** — [`docs/design/`](docs/design/)
 - **디자인 원본 (시각적 계약)** — [`design/`](design/)
@@ -23,8 +23,17 @@
 
 ```
 npm install
-npm run verify   # 토큰 대조 + 빌드 + 스모크 (1단계 검증 전체)
-npm start        # 앱 실행
+npm run resources   # opendataloader JAR 을 resources/lib/ 로
+npm run jre         # jlink 로 경량 JRE 생성 (JDK 17+ 필요)
+npm run verify      # 토큰 대조 + 빌드 + 셸 스모크 + PDF 변환 검증
+npm start           # 앱 실행
+```
+
+변환이 되는지 빠르게 보려면:
+
+```
+npm start -- --self-test            # 함께 넣어 둔 한글 시험 자료
+npm start -- --self-test 내문서.pdf
 ```
 
 | 스크립트 | 내용 |
@@ -32,7 +41,14 @@ npm start        # 앱 실행
 | `tokens` / `tokens:check` | `design/index.html`에서 색 토큰 생성 / 드리프트 검사 |
 | `typecheck` | 타입 검사만 |
 | `build` | 토큰 검사 → `tsc` → 렌더러 정적 파일 복사 |
-| `smoke` | Electron을 띄워 보안 설정·토큰·preload 확인, 스크린샷 저장 |
+| `smoke` | Electron을 띄워 보안 설정·토큰·preload·렌더러 모듈 확인, 스크린샷 저장 |
+| `resources` / `jre` | JAR 복사 / 경량 JRE 생성 |
+| `verify:pdf` | 한글 PDF 변환 단언 15개 |
+| `dist:win` | Windows portable exe 빌드 |
+
+`resources/`(JRE·JAR)는 빌드 산출물이라 git 에 없다. `npm run resources && npm run jre` 로 만든다.
+
+Windows 동작 확인은 [GitHub Actions](.github/workflows/build.yml) 의 `debug-windows` job 이 만드는 아티팩트로 한다 — portable exe 와 변환 결과가 올라온다.
 
 `src/renderer/styles/tokens.css`는 **자동 생성 파일이다.** 직접 고치지 말고 `design/index.html`을 고친 뒤 `npm run tokens`를 돌린다. 어긋나면 빌드가 실패한다.
 

@@ -7,13 +7,18 @@
   "scripts": {
     "tokens": "node scripts/tokens.mjs",
     "tokens:check": "node scripts/tokens.mjs --check",
+    "resources": "node scripts/resources.mjs",
+    "jre": "node scripts/jre.mjs",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "build": "npm run tokens:check && tsc -p tsconfig.node.json && tsc -p tsconfig.renderer.json && node scripts/copy-static.mjs",
     "start": "electron .",
     "smoke": "node scripts/smoke.mjs",
-    "verify": "npm run build && npm run smoke"
+    "verify:pdf": "node scripts/verify-pdf.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:pdf",
+    "dist:win": "electron-builder --win portable"
   },
   "devDependencies": {
+    "@opendataloader/pdf": "^2.5.9",
     "@types/node": "^24.0.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.0.0",

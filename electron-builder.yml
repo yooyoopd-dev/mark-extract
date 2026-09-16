@@ -1,17 +1,26 @@
-# docs/design/05-packaging.md 명세. 실제 빌드는 로드맵 8단계에서 검증한다.
+# docs/design/05-packaging.md 명세.
 appId: dev.yooyoopd.markextract
 productName: Mark Extract
 directories:
   output: dist
 files:
   - out/**
+
+# 동봉 JRE 와 JAR. 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못하므로
+# asar 바깥(앱의 resources/)에 그대로 둔다. 어댑터는 packaged 일 때
+# process.resourcesPath 를 기준으로 찾는다.
+extraResources:
+  - from: resources/jre
+    to: jre
+  - from: resources/lib
+    to: lib
+  # --self-test 를 인자 없이 돌릴 수 있게 한글 시험 자료를 함께 넣는다 (135KB).
+  - from: test/fixtures/sample-ko.pdf
+    to: sample-ko.pdf
+
 win:
   target:
     - target: portable
       arch:
         - x64
   artifactName: MarkExtract-${version}.exe
-# 자바는 asar 안의 파일을 실행하거나 읽지 못한다.
-asarUnpack:
-  - resources/jre/**
-  - resources/lib/*.jar

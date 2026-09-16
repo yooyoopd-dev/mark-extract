@@ -39,5 +39,6 @@ if (failures.length > 0) {
 console.log("스모크 통과");
 console.log("  보안 설정: nodeIntegration=false, contextIsolation=true, sandbox=true");
 console.log("  색 토큰: 라이트/다크 계산값이 design/index.html 과 일치");
-console.log("  preload: window.markExtract 노출 확인");
+console.log("  preload: window.markExtract 표면 확인 (version/convert/getFilePath)");
+console.log("  렌더러: ES 모듈 체인 실행, 콘솔 오류 없음");
 for (const s of shots) console.log(`  스크린샷: ${s}`);

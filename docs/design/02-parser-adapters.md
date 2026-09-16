@@ -50,9 +50,11 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 
 산출 파일 이름은 입력 파일명의 **마지막 세 글자를 `md`로 치환**한 것이다 (`report.pdf` → `report.md`). 매 변환마다 새 임시 디렉터리를 쓰므로 그 디렉터리의 `.md` 파일을 읽으면 된다.
 
-### 헬스 체크
+### 헬스 체크 — 2단계 실측
 
-**이 CLI에는 `--version` 플래그가 없다.** `--version`으로 확인하면 정상 설치를 고장으로 오판한다. 대신 `--export-options`를 던지고, 출력에 `opendataloader`와 `usage`가 함께 나오면 살아 있는 것으로 본다. 인자를 거부하는 것도 "프로세스가 떠서 인자를 파싱했다"는 증거이므로 통과로 친다.
+**이 CLI에는 `--version` 플래그가 없다.** 실제로 던져 보면 `Unrecognized option: --version` 과 usage 배너를 내고 **exit 2** 로 끝난다. 이걸로 확인하면 정상 설치를 고장으로 오판한다.
+
+`--export-options` 를 쓴다. 실측 결과 **exit 0 이고 옵션 30개를 담은 JSON** 을 내놓는다. 문자열을 뒤지는 대신 **JSON 을 파싱해 `options` 배열이 비지 않았는지** 본다. 이쪽이 판정이 분명하다.
 
 ### 인스펙터 옵션 ↔ CLI 플래그
 
@@ -68,7 +70,41 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 | 줄바꿈 보존 | `--keep-line-breaks` | |
 | OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` `--hybrid-timeout` | → [OCR](#ocr과-hybrid-서버) |
 
-고정값: `--format markdown`, `--quiet`(로그는 stderr로), `--threads 1`(기본. 문서 단위로 이미 큐가 있고 `>1`은 실험적이며 출력이 달라질 수 있음).
+고정값: `--format markdown`, `--quiet`(로그는 stderr로), **`--keep-line-breaks`**(아래 참조).
+
+**`--space-ratio` 는 노출하지 않는다.** 한글 문제를 이걸로 고칠 수 있나 시험했더니 오히려 망가진다.
+
+```
+0.17 (기본)  이 문서는 Mark Extract의 PDF 어댑터를 … 섞여 있 으며
+0.30         이 문서는MarkExtract의PDF어댑터를 … 섞여 있 으며
+             MixedcontentwithEnglishwordslikeconversion,adapter,and markdown.
+```
+
+정당한 단어 사이 공백까지 사라지는데 원래 문제는 그대로다. 기본값을 유지하고 UI 에 내보내지 않는다.
+
+### 한글 줄 잇기 — 2단계 실측, 이 단계의 핵심
+
+기본 출력에서 한글 단어 가운데 공백이 끼어든다.
+
+```
+원문        … English가 섞여 있으며, 제목 계층과 …
+기본 출력   … English가 섞여 있 으며, 제목 계층과 …
+```
+
+`--keep-line-breaks` 로 확인하니 PDF 줄바꿈이 정확히 `있` / `으며` 사이였다. **줄을 이을 때 공백을 넣는 동작이 영어에선 맞고 한글에선 틀리다.**
+
+그래서 `--keep-line-breaks` 로 줄 경계를 살린 채 받아 **우리가 직접 잇는다** (`src/main/normalize.ts`).
+
+| 줄 경계 양쪽 | 잇는 방법 |
+|---|---|
+| 둘 다 CJK (한글·한자·가나·전각) | 공백 없이 |
+| 그 외 (영문, 숫자, 한글↔영문 경계) | 공백 하나 |
+
+블록 줄(제목 `#`, 표 `|`, 인용 `>`, 코드 울타리, 목록 마커, 수평선)은 잇지 않는다. 빈 줄은 문단 경계라 남긴다.
+
+### 알려진 제약 — 목록 마커
+
+불릿 목록(`<ul><li>`)이 `-` 없는 문단으로 풀린다. opendataloader 의 목록 감지 한계이며 우리가 고칠 수 있는 것이 아니다. 변환 로그에 알리고, 목록 구조가 중요한 문서는 LLM 엔진을 쓰도록 안내한다.
 
 ### OCR과 hybrid 서버
 

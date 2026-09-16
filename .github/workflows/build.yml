@@ -1,0 +1,101 @@
+# Windows 동작 확인용 디버그 빌드.
+#
+# 개발은 리눅스 컨테이너에서 하지만 제품은 Windows 단일 실행 파일이다. 동봉 JRE
+# 와 한글 인코딩은 Windows 에서 확인되어야 의미가 있어, 여기서 빌드해 아티팩트로
+# 올린다. 내려받아 직접 실행해 보면 된다.
+name: build
+
+on:
+  push:
+    branches: ["claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-linux:
+    name: 리눅스 검증
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - run: npm run resources
+      - run: npm run jre
+
+      # Electron 창을 띄우려면 디스플레이가 있어야 한다.
+      - name: 검증 (토큰 · 빌드 · 셸 스모크 · PDF)
+        run: xvfb-run -a npm run verify
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-verify-${{ github.sha }}
+          path: |
+            out/verify/
+            out/smoke/
+          if-no-files-found: warn
+
+  debug-windows:
+    name: Windows 디버그 빌드
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run resources
+
+      # 러너의 JDK 로 만들므로 Windows 용 런타임이 나온다.
+      - name: 경량 JRE 생성 (Windows)
+        run: npm run jre
+
+      # 이 job 의 핵심. Windows 에서 동봉 JRE 로 한글 PDF 가 변환되는지 본다.
+      - name: PDF 변환 검증 (Windows)
+        run: npm run verify:pdf
+
+      - name: portable exe 빌드
+        run: npm run dist:win
+
+      # 패키징 뒤에야 process.resourcesPath 경로가 검증된다. 개발 경로와 다르므로
+      # 여기서 깨지면 배포본이 동봉 JRE 를 못 찾는다는 뜻이다.
+      - name: 패키징된 앱 자체 점검
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist/*.exe | Select-Object -First 1
+          Write-Host "실행: $($exe.FullName) --self-test"
+          & $exe.FullName --self-test | Tee-Object -FilePath out/verify/self-test-windows.txt
+          if ($LASTEXITCODE -ne 0) { throw "자체 점검 실패 (exit $LASTEXITCODE)" }
+
+      - name: 변환 결과 업로드
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pdf-conversion-${{ github.sha }}
+          path: out/verify/
+          if-no-files-found: warn
+
+      - name: 디버그 앱 업로드
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MarkExtract-debug-${{ github.sha }}
+          path: dist/*.exe
+          if-no-files-found: error

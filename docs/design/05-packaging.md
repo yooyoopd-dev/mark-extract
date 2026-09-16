@@ -18,7 +18,9 @@ build:
     - resources/lib/*.jar
 ```
 
-JRE와 JAR은 **asar에 넣지 않는다.** 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못한다.
+JRE 와 JAR 은 **asar 바깥**에 둔다. 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못한다. `asarUnpack` 이 아니라 `extraResources` 를 쓴다 — 이 파일들은 앱 소스 트리 밖(`resources/`)에서 만들어지기 때문이다. 앱의 `resources/` 아래 `jre/`, `lib/` 로 들어가고, 어댑터는 패키징 시 `process.resourcesPath` 를 기준으로 찾는다.
+
+`--self-test` 를 인자 없이 돌릴 수 있게 한글 시험 자료(135KB)도 함께 넣는다.
 
 ## JRE 동봉
 
@@ -32,22 +34,30 @@ jlink --add-modules <필요 모듈>
       --output resources/jre
 ```
 
-필요 모듈은 `jdeps`로 JAR을 분석해 결정한다. PDF 처리에 AWT 이미지 경로가 걸리므로 `java.desktop`이 들어갈 가능성이 높다 — **확정 전 실측 필요**. 헤드리스로 돌리므로 실행 시 `-Djava.awt.headless=true`를 준다.
+**모듈 — 2단계 실측 확정.** `jdeps --multi-release 21 --print-module-deps --ignore-missing-deps` 결과에 안전용 둘을 더했다.
+
+```
+java.base  java.compiler  java.desktop  java.management  java.sql
+jdk.unsupported   sun.misc.Unsafe 를 쓰는 라이브러리
+jdk.crypto.ec     암호가 걸린 PDF
+```
+
+`--ignore-missing-deps` 결과는 하한선이라 런타임에 더 필요할 수 있어 뒤의 둘을 얹었다. 목록은 `scripts/jre.mjs` 에 상수로 박았다 — 매 빌드마다 `jdeps` 를 돌리면 환경에 따라 결과가 흔들린다. 헤드리스로 돌리므로 실행 시 `-Djava.awt.headless=true` 를 준다.
 
 빌드 재현성을 위해 JDK 버전을 고정하고, `jlink` 스크립트를 저장소에 둔다. 빌드 머신마다 JRE 내용이 달라지면 안 된다.
 
 ## 용량
 
-**추정치다.** 실제 빌드로 확인하지 않았다.
+JRE 와 JAR 은 2단계에서 실측했다. exe 압축 크기는 아직 추정치다.
 
 | 구성 | 크기 |
 |---|---|
 | Electron 런타임 | 약 180MB |
-| jlink JRE | 약 45MB |
-| opendataloader JAR | 24.2MB (실측) |
+| jlink JRE | **54MB (실측)** — 추정 45MB 였음 |
+| opendataloader JAR | 23.1MB (실측) |
 | kordoc + 앱 코드 | 약 20MB |
-| **합계 (압축 전)** | **약 270MB** |
-| **portable .exe (압축 후)** | **약 110~130MB** |
+| **합계 (압축 전)** | **약 280MB** |
+| **portable .exe (압축 후)** | 약 110~130MB (미실측 — 8단계) |
 
 줄이고 싶다면 순서대로 검토한다: `jdeps`로 JRE 모듈 더 줄이기 → `--omit=optional`로 이미 빠진 kordoc 네이티브 확인 → Electron 로케일 파일 정리. Electron 자체를 걷어내는(Tauri 등) 선택은 두 파서가 모두 Node 라이브러리라 사이드카 계층을 새로 만들어야 하므로 비용이 크다.
 

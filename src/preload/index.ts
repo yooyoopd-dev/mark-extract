@@ -7,11 +7,13 @@
  *
  * sandbox: true 라서 이 파일은 CommonJS 로 컴파일된다 (tsconfig.node.json).
  */
-import { contextBridge } from "electron";
-import type { MarkExtractApi } from "../shared/api";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
+import type { MarkExtractApi, ParseResult } from "../shared/api";
 
 const api: MarkExtractApi = {
   version: process.versions.electron,
+  getFilePath: (file) => webUtils.getPathForFile(file),
+  convert: (filePath) => ipcRenderer.invoke("doc:convert", filePath) as Promise<ParseResult>,
 };
 
 contextBridge.exposeInMainWorld("markExtract", api);

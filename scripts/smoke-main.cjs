@@ -58,11 +58,15 @@ async function capture(win, theme, name) {
 
 app.whenReady().then(async () => {
   const failures = [];
+  const consoleErrors = [];
   let shots = [];
 
   try {
     mkdirSync(SHOTS, { recursive: true });
     const win = createMainWindow();
+    win.webContents.on("console-message", (event) => {
+      if (event.level === "error") consoleErrors.push(String(event.message ?? "").slice(0, 200));
+    });
     await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
 
     // 1. 보안 설정 — 소스 grep 이 아니라 실행 중인 webContents 에서 읽는다.
@@ -71,7 +75,21 @@ app.whenReady().then(async () => {
       if (prefs[key] !== want) failures.push(`webPreferences.${key} = ${prefs[key]} (기대: ${want})`);
     }
 
-    // 2. 토큰 — 실제 계산값을 원본과 대조
+    // 2. preload 표면과 렌더러 모듈 체인 — 테마 캡처보다 먼저 본다.
+    //    모듈이 깨졌으면 여기서 정확한 사유가 나온다.
+    const api = await win.webContents.executeJavaScript(
+      "[typeof window.markExtract?.version, typeof window.markExtract?.convert, typeof window.markExtract?.getFilePath].join(',')",
+    );
+    if (api !== "string,function,function") failures.push(`window.markExtract 표면이 다름 (${api})`);
+
+    // 렌더러 ES 모듈 체인이 실제로 실행됐는지. 여기가 비면 import 가 깨진 것이다.
+    const mounted = await win.webContents.executeJavaScript("!!document.querySelector('#dbgDrop')");
+    if (mounted !== true) failures.push("디버그 뷰가 붙지 않음 — 렌더러 모듈 로드 실패로 보입니다");
+
+    // 렌더러 콘솔 오류는 조용히 지나가므로 따로 모은다.
+    if (consoleErrors.length > 0) failures.push(`렌더러 콘솔 오류: ${consoleErrors.join(" | ")}`);
+
+    // 3. 토큰 — 실제 계산값을 원본과 대조
     for (const [theme, selector] of [["light", ':root, [data-theme="light"]'], ["dark", '[data-theme="dark"]']]) {
       const want = expectedTokens(selector);
       const got = await capture(win, theme, `shell-${theme}`);
@@ -81,9 +99,6 @@ app.whenReady().then(async () => {
       }
     }
 
-    // preload 표면이 실제로 노출되는지
-    const api = await win.webContents.executeJavaScript("typeof window.markExtract?.version");
-    if (api !== "string") failures.push(`window.markExtract.version 이 노출되지 않음 (${api})`);
   } catch (error) {
     failures.push(`예외: ${error && error.stack ? error.stack : String(error)}`);
   }

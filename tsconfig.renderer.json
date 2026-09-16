@@ -9,5 +9,5 @@
     "rootDir": "src/renderer",
     "outDir": "out/renderer"
   },
-  "include": ["src/renderer"]
+  "include": ["src/renderer", "src/shared"]
 }
