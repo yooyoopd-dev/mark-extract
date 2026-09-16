@@ -4,14 +4,30 @@
 
 ---
 
-## 1. 프로젝트 골격 + 디자인 토큰
+## 1. 프로젝트 골격 + 디자인 토큰 ✅ 완료
 
 Electron 프로젝트 초기화, 3계층 분리, `design/index.html`에서 토큰 추출 (`styles/tokens.css`).
 
-**검증**
-- 빈 셸이 뜨고 라이트/다크 전환이 동작한다
-- `tokens.css`의 색 45쌍이 `design/index.html`의 값과 정확히 일치한다 (스크립트로 대조)
-- `nodeIntegration: false` / `contextIsolation: true` / `sandbox: true`가 켜져 있다
+**검증 결과** — `npm run verify` 하나로 돌아간다.
+
+| 기준 | 결과 |
+|---|---|
+| 빈 셸이 뜨고 라이트/다크 전환이 동작한다 | 통과. xvfb에서 창을 띄워 두 테마 스크린샷 확보 |
+| `tokens.css`의 색 45쌍이 `design/index.html`과 일치한다 | 통과. 90개 토큰 일치. 파일 대조(`tokens:check`)와 실행 중 계산값 대조(스모크) 두 층 |
+| `nodeIntegration: false` / `contextIsolation: true` / `sandbox: true` | 통과. 소스 grep이 아니라 실행 중 `webContents.getLastWebPreferences()`에서 확인 |
+
+**정한 것**
+
+- 번들러를 쓰지 않는다. 렌더러가 프레임워크 없는 순수 HTML/CSS/JS라 번들할 대상이 없다. `tsc`만 쓰고 의존성은 `electron`·`electron-builder`·`typescript`·`@types/node` 넷뿐이다. (`electron-vite@5`의 peer는 `vite ^5|^6|^7`인데 현재 vite는 8.x라 맞지도 않는다.)
+- 색 토큰은 `scripts/tokens.mjs`가 `design/index.html`에서 생성한다. `tokens.css`는 커밋하되 `tokens:check`가 드리프트를 잡고, 어긋나면 **빌드가 실패한다**. 손으로 옮기다 한 글자 틀리는 경로를 없앴다.
+- 반지름·타이포·모션은 원본에 CSS 변수가 아니라 리터럴로 있어 생성 대상이 아니다. `base.css`에 손으로 올리되 값은 원본 그대로 뒀다.
+
+**실측으로 정정한 것**
+
+- Electron의 `file://`은 `<script type="module">`을 **정상적으로 싣는다.** 설계 당시 일반 브라우저처럼 CORS로 막힐 것이라 적었으나 실제로는 로드된다. 4단계에서 커스텀 프로토콜을 들일 필요가 없다.
+- TypeScript 7에서 `moduleResolution: node10`과 `module: none`이 제거되었다. 각각 기본값과 `ESNext`로 바꿨다.
+
+**미검증**: `electron-builder.yml`은 `05-packaging.md` 명세대로 작성만 했다. 리눅스 컨테이너에서 Windows portable 빌드를 돌릴 수 없어 8단계에서 확인한다.
 
 ## 2. PDF 어댑터 + JRE 동봉
 

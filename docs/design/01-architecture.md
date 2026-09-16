@@ -20,7 +20,11 @@ Electron 3계층. 렌더러는 Node에 접근하지 못하고, 파일 시스템�
 └─────────────────────────────────────────────────────┘
 ```
 
-**보안 설정 (고정)**: `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`. 렌더러에서 원격 콘텐츠를 로드하지 않는다.
+**보안 설정 (고정)**: `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`. 렌더러에서 원격 콘텐츠를 로드하지 않는다. `will-navigate`와 `setWindowOpenHandler`로 창 이동·새 창을 모두 막고, 외부 링크는 기본 브라우저로 넘긴다. 렌더러에는 CSP를 `default-src 'none'`으로 두고 자기 자원만 연다.
+
+**preload는 CommonJS로 컴파일한다.** `sandbox: true`인 preload는 ESM을 쓸 수 없다. main도 같은 형식으로 맞춘다(`tsconfig.node.json`). 렌더러만 ESM이다.
+
+**렌더러 모듈 로딩 — 1단계 실측**: Electron의 `file://`은 `<script type="module">`을 정상적으로 싣는다. 일반 브라우저에서 CORS로 막히는 것과 다르므로 **커스텀 프로토콜(`protocol.handle`)이 필요 없다.** 파일이 여러 개가 되는 4단계도 `loadFile` + ESM으로 간다.
 
 **IPC 표면**: 채널을 다음으로 한정한다. 와일드카드 전달자를 두지 않는다.
 

@@ -1,0 +1,57 @@
+/* 색 이외의 토큰.
+ *
+ * 원본(design/index.html)에는 이 값들이 CSS 변수가 아니라 리터럴로 흩어져 있어
+ * 생성 대상이 아니다. docs/design/04-ui-spec.md 의 승격 표에 따라 여기서 토큰으로
+ * 올리되 값 자체는 원본 그대로 둔다.
+ */
+:root {
+  --font-sans: Inter, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+               "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 50%;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+
+  --motion-fast: .15s ease;
+  --motion-base: .2s ease;
+  --motion-panel: .22s cubic-bezier(.2, .7, .3, 1);
+  --motion-progress: .35s ease-out;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--surface-app);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
+/* 원본의 접근성 규칙 — 전환을 사실상 끈다. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

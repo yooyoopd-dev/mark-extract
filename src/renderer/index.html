@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<!-- 앱은 원격 콘텐츠를 싣지 않는다. 기본값을 전부 닫고 자기 자원만 허용한다. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'">
+<title>Mark Extract</title>
+<link rel="stylesheet" href="./styles/tokens.css">
+<link rel="stylesheet" href="./styles/base.css">
+<link rel="stylesheet" href="./styles/layout.css">
+</head>
+<body>
+<div class="app">
+  <header class="titlebar">
+    <span class="tb-name">Mark Extract</span>
+    <span class="tb-spacer"></span>
+    <button class="tb-tool" id="themeToggle" type="button" aria-pressed="false">
+      <span id="themeLabel">다크 모드</span>
+    </button>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar"><div class="placeholder">사이드바</div></aside>
+    <section class="listpane"><div class="placeholder">문서 목록</div></section>
+    <main class="viewer"><div class="placeholder">변환 결과</div></main>
+    <aside class="inspector"><div class="placeholder">속성</div></aside>
+  </div>
+
+  <footer class="statusbar">
+    <span id="sbStatus">골격 단계 — 파서 미연결</span>
+  </footer>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# docs/design/05-packaging.md 명세. 실제 빌드는 로드맵 8단계에서 검증한다.
+appId: dev.yooyoopd.markextract
+productName: Mark Extract
+directories:
+  output: dist
+files:
+  - out/**
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: MarkExtract-${version}.exe
+# 자바는 asar 안의 파일을 실행하거나 읽지 못한다.
+asarUnpack:
+  - resources/jre/**
+  - resources/lib/*.jar

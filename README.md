@@ -14,10 +14,27 @@
 
 ## 상태
 
-설계 단계. 구현 코드는 아직 없다.
+[로드맵](docs/design/06-roadmap.md) 8단계 중 **1단계(프로젝트 골격 + 디자인 토큰) 완료**. 파서·LLM·UI는 아직 없다.
 
 - **설계 문서** — [`docs/design/`](docs/design/)
 - **디자인 원본 (시각적 계약)** — [`design/`](design/)
+
+## 개발
+
+```
+npm install
+npm run verify   # 토큰 대조 + 빌드 + 스모크 (1단계 검증 전체)
+npm start        # 앱 실행
+```
+
+| 스크립트 | 내용 |
+|---|---|
+| `tokens` / `tokens:check` | `design/index.html`에서 색 토큰 생성 / 드리프트 검사 |
+| `typecheck` | 타입 검사만 |
+| `build` | 토큰 검사 → `tsc` → 렌더러 정적 파일 복사 |
+| `smoke` | Electron을 띄워 보안 설정·토큰·preload 확인, 스크린샷 저장 |
+
+`src/renderer/styles/tokens.css`는 **자동 생성 파일이다.** 직접 고치지 말고 `design/index.html`을 고친 뒤 `npm run tokens`를 돌린다. 어긋나면 빌드가 실패한다.
 
 ## 라이선스
 
