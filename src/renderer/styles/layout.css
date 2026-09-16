@@ -48,6 +48,11 @@
   background: var(--surface-app);
 }
 
+/* 그리드 항목의 min-height 기본값은 auto 라 내용만큼 늘어난다. 0 으로 내려야
+   안쪽의 overflow:auto 가 걸릴 높이 제약이 생긴다 — 이게 없으면 긴 문서에서
+   스크롤이 통째로 죽는다. */
+.sidebar, .listpane, .viewer, .inspector { min-height: 0; overflow: hidden; }
+
 .sidebar   { background: var(--surface-sidebar); border-right: 1px solid var(--border-default); }
 .listpane  { background: var(--surface-panel);   border-right: 1px solid var(--border-default); }
 .viewer    { background: var(--surface-app); }
@@ -76,7 +81,7 @@
 }
 
 /* 2단계 디버그 화면. 4단계에서 본 뷰어로 교체된다. */
-.dbg { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; padding: 12px; gap: 10px; }
+.dbg { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; padding: 12px; gap: 10px; }
 .dbg[data-over] { outline: 2px dashed var(--accent); outline-offset: -6px; background: var(--accent-bg); }
 .dbg-hint { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }
 .dbg-panes { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 10px; min-height: 0; }

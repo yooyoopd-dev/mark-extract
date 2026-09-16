@@ -89,6 +89,33 @@ app.whenReady().then(async () => {
     // 렌더러 콘솔 오류는 조용히 지나가므로 따로 모은다.
     if (consoleErrors.length > 0) failures.push(`렌더러 콘솔 오류: ${consoleErrors.join(" | ")}`);
 
+    // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
+    //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을
+    //    볼 방법이 사라진다.
+    const scroll = await win.webContents.executeJavaScript(`(() => {
+      const md = document.querySelector("#dbgMd");
+      const panes = document.querySelector("#dbgPanes");
+      if (!md || !panes) return { error: "디버그 뷰 요소 없음" };
+      panes.hidden = false;
+      md.textContent = Array.from({ length: 400 }, (_, i) => "긴 문서 " + i + "번째 줄").join("\\n");
+      md.scrollTop = 99999;
+      const moved = md.scrollTop;
+      const r = {
+        overflows: md.scrollHeight > md.clientHeight + 1,
+        scrolled: moved > 0,
+        docFits: document.documentElement.scrollHeight <= window.innerHeight + 1,
+      };
+      md.textContent = "";
+      panes.hidden = true;
+      return r;
+    })()`);
+    if (scroll.error) failures.push(scroll.error);
+    else {
+      if (!scroll.overflows) failures.push("결과 영역이 넘치지 않음 — 칸이 내용만큼 늘어난 것으로 보입니다");
+      if (!scroll.scrolled) failures.push("결과 영역이 스크롤되지 않음");
+      if (!scroll.docFits) failures.push("창 자체가 넘침 — 레이아웃이 뷰포트를 벗어났습니다");
+    }
+
     // 3. 토큰 — 실제 계산값을 원본과 대조
     for (const [theme, selector] of [["light", ':root, [data-theme="light"]'], ["dark", '[data-theme="dark"]']]) {
       const want = expectedTokens(selector);
