@@ -67,7 +67,8 @@ LLM Wiki — Copyright (C) 2024-2026 Yong Su
 
 **인용해도 되는 것 — 사실이라 저작권 대상이 아님**
 
-- CLI 인자 조합: `claude -p --output-format stream-json --input-format stream-json --verbose --model <m>` 등
+- CLI 인자 조합: `claude -p --output-format stream-json --verbose --model <m>` 등
+  - 인용한 것은 "어떤 플래그가 있고 무엇을 한다"는 사실이지 그 조합이 우리 용도에 맞다는 보증이 아니다. 실제로 `--input-format stream-json`은 우리 경로에서 틀렸다 — 실측해 빼냈다 ([03](03-llm-engine.md#프로바이더별-기동))
 - 프로토콜 사실: `--verbose`가 켜지면 `stream_event`와 `assistant` 이벤트가 섞여 오고 후자는 증분이 아니라는 점
 - 운영 사실: opendataloader CLI에 `--version`이 없어 `--export-options`로 확인해야 한다는 점
 - Windows에서 npm 전역 설치가 `.cmd` 셰임을 만든다는 점
@@ -78,7 +79,9 @@ LLM Wiki — Copyright (C) 2024-2026 Yong Su
 - `buildExitError()`의 오류 메시지 문구
 - `cli_resolver.rs` / `opendataloader.rs`의 코드와 주석
 
-6단계(LLM CLI 계층)에서 재작성할 범위는 CLI transport 4종, 실행 파일 탐색기, 오류 진단이다.
+**6a단계에서 재작성한 범위** — CLI transport 4종(`src/main/llm/providers/`), 실행 파일 탐색기(`resolve.ts`), 오류 진단(`diagnose.ts`). 모두 새로 썼다. 참고한 것은 위의 사실 목록뿐이고, 함수 구조·이름·문구를 가져오지 않았다.
+
+llm-co-wiki의 macOS 로그인 셸 PATH 탐색(`cli_resolver.rs`)은 **기능 자체를 가져오지 않았다.** 제품이 Windows 전용이라 필요가 없다 — 쓰지 않을 코드를 옮길 이유가 없고, 옮기지 않으면 경계 문제도 생기지 않는다.
 
 > 이 정리는 GPLv3 조문과 FSF의 공개 해석에 근거한 것이며 법률 자문이 아니다. 배포 형태를 바꾸게 되면 법무 검토를 받는 편이 안전하다.
 

@@ -10,7 +10,8 @@
  * 원본의 선택지는 시제품이라 없는 값을 담고 있었다.
  */
 import { esc, icon } from "../markdown.js";
-import { effectiveOptions, KIND_LABEL, STATUS, type Doc } from "../state.js";
+import { effectiveOptions, KIND_LABEL, STATUS, type Doc, type DocOptions } from "../state.js";
+import type { Provider } from "../../shared/parse";
 
 function sizeLabel(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -19,6 +20,60 @@ function sizeLabel(bytes: number): string {
 
 const cell = (term: string, value: string): string =>
   `<div><dt>${esc(term)}</dt><dd>${esc(value)}</dd></div>`;
+
+const sel = (value: string, want: string): string => (value === want ? " selected" : "");
+
+const PROVIDERS: ReadonlyArray<[Provider, string]> = [
+  ["claude", "Claude Code"],
+  ["gemini", "Gemini CLI"],
+  ["codex", "Codex CLI"],
+  ["ollama", "Ollama (로컬 모델)"],
+];
+
+/**
+ * LLM 엔진을 골랐을 때만 나오는 칸.
+ *
+ * 모델은 자유 입력이다 — CLI 버전마다 받는 이름이 달라 목록을 앱에 박으면 금방
+ * 낡는다. Ollama 모델 드롭다운은 설정 화면(6b)에서 /api/tags 로 채운다.
+ */
+function llmOptions(options: DocOptions): string {
+  const provider = options.provider ?? "claude";
+  const mode = options.inputMode ?? "B";
+  // Ollama 는 파일 읽기 도구가 없어 모드 A 를 할 수 없다.
+  const modeA = provider !== "ollama";
+
+  return `
+    <div class="opt">
+      <label for="optProvider">프로바이더</label>
+      <select id="optProvider" data-opt="provider">
+        ${PROVIDERS.map(([id, label]) => `<option value="${id}"${sel(provider, id)}>${esc(label)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="opt">
+      <label for="optModel">모델</label>
+      <input id="optModel" type="text" data-opt="model" value="${esc(options.model ?? "")}"
+             placeholder="${provider === "ollama" ? "예: qwen2.5:7b (필수)" : "비우면 CLI 기본값"}">
+      <span class="desc">${
+        provider === "ollama"
+          ? "Ollama 는 모델 이름이 필요합니다. 설치된 모델 이름을 그대로 적으세요."
+          : "CLI 가 받는 모델 이름을 그대로 적습니다. 비우면 CLI 기본값을 씁니다."
+      }</span>
+    </div>
+    <div class="opt">
+      <label for="optMode">입력 모드</label>
+      <select id="optMode" data-opt="inputMode">
+        <option value="B"${sel(mode, "B")}>B — 로컬 파싱 후 재가공</option>
+        <option value="A"${sel(mode, "A")}${modeA ? "" : " disabled"}>A — CLI 가 파일을 직접 읽음</option>
+      </select>
+      <span class="desc">${
+        !modeA
+          ? "Ollama 는 파일 읽기 도구가 없어 모드 A 를 쓸 수 없습니다."
+          : mode === "A"
+            ? "변환할 파일 1개만 임시 폴더에 복사해 전달하며, 읽기 도구만 허용합니다. 원본 파일의 실제 경로는 전달되지 않습니다."
+            : "로컬 파서가 뽑은 Markdown 을 넘겨 구조를 다듬게 합니다. 모든 프로바이더·모든 형식에서 동작합니다."
+      }</span>
+    </div>`;
+}
 
 export function renderInspector(host: HTMLElement, doc: Doc | null): void {
   if (!doc) {
@@ -37,7 +92,7 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
   const options = effectiveOptions(doc);
   // 표 감지 방식은 opendataloader 의 --table-method 라서 PDF 에만 있다.
   const pdfOnly = doc.kind === "pdf" ? "" : "disabled";
-  const sel = (value: string, want: string): string => (value === want ? " selected" : "");
+  const engine = options.engine ?? "local";
   // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
   const strip = options.includeHeaderFooter !== true;
 
@@ -62,12 +117,17 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
       <h3>변환 엔진</h3>
       <div class="opt">
         <label for="optEngine">처리 방식</label>
-        <select id="optEngine" disabled>
-          <option value="local" selected>로컬 엔진</option>
-          <option value="llm">LLM 엔진</option>
+        <select id="optEngine" data-opt="engine">
+          <option value="local"${sel(engine, "local")}>로컬 엔진</option>
+          <option value="llm"${sel(engine, "llm")}>LLM 엔진</option>
         </select>
-        <span class="desc">LLM 엔진은 6단계에서 들어옵니다. 같은 문서라도 변환할 때마다 결과가 달라질 수 있습니다.</span>
+        <span class="desc">${
+          engine === "llm"
+            ? "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다."
+            : "로컬 엔진은 같은 문서에서 항상 같은 결과를 냅니다."
+        }</span>
       </div>
+      ${engine === "llm" ? llmOptions(options) : ""}
     </div>
 
     <div class="insp-sec">

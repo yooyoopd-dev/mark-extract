@@ -354,14 +354,27 @@ function bind(): void {
   });
 
   inspBody.addEventListener("change", (event) => {
-    const select = (event.target as HTMLElement).closest<HTMLSelectElement>("select[data-opt]");
+    const field = (event.target as HTMLElement).closest<HTMLSelectElement | HTMLInputElement>("[data-opt]");
     const doc = getDoc(state.selected);
-    if (!select || !doc) return;
+    if (!field || !doc) return;
 
-    if (select.dataset["opt"] === "tableMethod") {
-      editOption(doc, { tableMethod: select.value as DocOptions["tableMethod"] });
-    } else if (select.dataset["opt"] === "imageOutput") {
-      editOption(doc, { imageOutput: select.value as DocOptions["imageOutput"] });
+    switch (field.dataset["opt"]) {
+      case "tableMethod":
+        return editOption(doc, { tableMethod: field.value as DocOptions["tableMethod"] });
+      case "imageOutput":
+        return editOption(doc, { imageOutput: field.value as DocOptions["imageOutput"] });
+      case "engine":
+        return editOption(doc, { engine: field.value as DocOptions["engine"] });
+      case "provider":
+        return editOption(doc, { provider: field.value as DocOptions["provider"] });
+      case "inputMode":
+        return editOption(doc, { inputMode: field.value as DocOptions["inputMode"] });
+      case "model":
+        // 비우면 undefined 로 되돌린다. "" 로 두면 저장된 undefined 와 달라 보여
+        // 바꾼 것이 없는데도 "변경됨" 띠가 뜬다.
+        return editOption(doc, { model: field.value.trim() || undefined });
+      default:
+        return;
     }
   });
 

@@ -26,12 +26,14 @@ Windows에서는 `claude.cmd` → `claude.exe` → `claude` 순으로 시도한�
 
 | 프로바이더 | 인자 | 출력 형식 |
 |---|---|---|
-| `claude` | `-p --output-format stream-json --input-format stream-json --verbose --model <m>` | 줄 단위 JSON 이벤트 |
+| `claude` | `-p --output-format stream-json --verbose --model <m>` | 줄 단위 JSON 이벤트 |
 | `gemini` | `--skip-trust --approval-mode plan -o json -m <m>` | JSON |
 | `codex` | `-a never exec --json --sandbox read-only --ephemeral --model <m> -` | 줄 단위 JSON |
 | `ollama` | `run <model>` (프롬프트는 stdin) | 평문 스트림 |
 
 `gemini`는 Windows에서 직접 실행이 실패하면 `cmd /C <경로>`로 재시도한다.
+
+> **실측 (CLI 2.1.273)**: `--input-format stream-json`은 **쓰지 않는다.** 켜면 stdin도 stream-json이어야 해서 평문 프롬프트가 `Error parsing streaming input line (type=unknown): SyntaxError`로 거절된다. `-p`는 평문 stdin을 그대로 프롬프트로 받는다. 설계 초안에 이 플래그가 들어 있었던 것은 llm-co-wiki가 stream-json 입력을 쓰기 때문이고, 우리는 한 번의 프롬프트만 보내므로 필요가 없다.
 
 ### claude 출력 파싱
 
@@ -56,7 +58,7 @@ Windows에서는 `claude.cmd` → `claude.exe` → `claude` 순으로 시도한�
 
 HTTP가 응답하지 않으면 CLI 단독으로 동작하되 **"잘림을 감지할 수 없음"** 경고를 남긴다. 컨텍스트를 넘긴 입력이 조용히 잘리면 사용자는 문서 뒷부분이 통째로 빠진 걸 모른다.
 
-> **구현 전 검증 필요**: `ollama run`이 파이프 입력에서 어떻게 종료하고 스트리밍하는지는 실제 실행으로 확인하지 않았다. 6단계 착수 시 검증 항목.
+> **여전히 미검증**: `ollama run`이 파이프 입력에서 어떻게 종료하고 스트리밍하는지는 **아직 확인하지 못했다.** 6a단계 개발 환경에서 `ollama.com`과 `registry.ollama.ai`가 네트워크 정책에 막혀(게이트웨이가 CONNECT를 403으로 거절) 모델을 내려받을 수 없었다. 어댑터는 설계 문서가 적은 동작(평문 스트림)을 가정해 구현했고 가짜 CLI로 우리 쪽 파싱만 검증했다. **가정 자체는 검증되지 않았다** — 실제 Ollama가 설치된 환경에서 확인해야 한다.
 
 ---
 
@@ -89,7 +91,7 @@ HTTP가 응답하지 않으면 CLI 단독으로 동작하되 **"잘림을 감지
 
 | 프로바이더 | 모드 A 처리 |
 |---|---|
-| `claude` | 도구를 전부 막는 대신 **읽기 전용 프로필**을 따로 둔다. 나머지 격리(`--setting-sources project`, `--no-session-persistence`, `--disable-slash-commands`)는 유지 |
+| `claude` | `--allowedTools Read Glob Grep` + `--disallowedTools Bash Edit Write WebFetch WebSearch Task` + `--permission-mode dontAsk`. 나머지 격리(`--setting-sources project`, `--no-session-persistence`, `--disable-slash-commands`)는 유지. `--add-dir`를 주지 않으므로 볼 수 있는 범위는 작업 디렉터리인 임시 폴더뿐이다 |
 | `codex` | `--sandbox read-only`가 이미 읽기 전용. 작업 디렉터리만 임시 폴더로 지정 |
 | `gemini` | `--approval-mode plan`에서 파일 읽기가 승인 없이 되는지 실행 전 진단으로 확인 |
 | `ollama` | **불가.** 파일 읽기 도구가 없다. UI에서 모드 A 선택을 차단한다 |
@@ -102,14 +104,22 @@ HTTP가 응답하지 않으면 CLI 단독으로 동작하되 **"잘림을 감지
 - 디자인의 실패 화면 2버튼 구조(`retryBtn` / `retryPlain`)를 그대로 쓴다
 - 배치 변환 중이면 해당 문서만 실패로 남기고 큐는 계속 간다
 
-> **미검증**: 어떤 프로바이더가 어떤 포맷을 읽는지는 확정된 사실이 아니다. claude가 PDF·DOCX를 네이티브로 읽는다는 것 외에는 확인하지 않았다. 6단계에서 포맷 × 프로바이더 매트릭스를 실측해 이 표를 채운다.
+**실측 (6a단계)**: claude만 쟀다. 우리가 주는 읽기 전용 프로필(`--allowedTools Read Glob Grep`)과 임시 폴더 작업 디렉터리에서 실제로 돌린 결과다. 도구 구성이 다르면 결과도 달라질 수 있다.
 
 | | PDF | DOCX | XLSX | XLS | PPTX |
 |---|---|---|---|---|---|
-| claude | 가능(알려짐) | 가능(알려짐) | 미검증 | 미검증 | 미검증 |
+| claude | **가능** (실측) | **불가** (실측) | **불가** (실측) | **불가** (실측) | **불가** (실측) |
 | gemini | 미검증 | 미검증 | 미검증 | 미검증 | 미검증 |
 | codex | 미검증 | 미검증 | 미검증 | 미검증 | 미검증 |
 | ollama | 불가 | 불가 | 불가 | 불가 | 불가 |
+
+claude는 DOCX에 대해 "바이너리 .docx 형식을 처리할 도구가 없습니다", XLSX에 대해 "xlsx 형식을 다루지 못한다"고 답했다. 설계 초안이 DOCX를 "가능(알려짐)"으로 적어 둔 것은 틀렸다 — 그것은 API의 문서 첨부 기능이고, CLI가 읽기 도구만 가진 상태와는 다르다.
+
+**gemini·codex는 설치하지 않았다.** 개발 환경에 없어 재지 못했고, 짐작으로 칸을 채우지 않는다. 설정 화면(6b)의 진단 리포트로 사용자가 자기 환경에서 확인한다.
+
+### 못 읽었을 때를 알아내는 법
+
+길이로 짐작하지 않는다 — 짧은 문서와 거절을 가를 수 없고 거절 문구는 모델마다 다르다. 프롬프트가 **정확한 한 마디**(`MARKEXTRACT_CANNOT_READ`)를 요구하고 실행기는 그것만 본다. 표식이 잡히면 `LLM_FORMAT_UNSUPPORTED`로 실패시키고 모드 B 재시도 버튼을 띄운다.
 
 ---
 

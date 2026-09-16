@@ -97,7 +97,16 @@ export function effectiveOptions(doc: Doc): DocOptions {
 /** 손댄 옵션이 저장된 것과 실제로 다른가. 같은 값으로 되돌리면 경고 띠가 사라진다. */
 export function isDirty(doc: Doc): boolean {
   if (state.draft?.id !== doc.id) return false;
-  const keys = ["tableMethod", "includeHeaderFooter", "imageOutput", "pages"] as const;
+  const keys = [
+    "tableMethod",
+    "includeHeaderFooter",
+    "imageOutput",
+    "pages",
+    "engine",
+    "provider",
+    "model",
+    "inputMode",
+  ] as const;
   return keys.some((k) => state.draft?.options[k] !== doc.options[k]);
 }
 

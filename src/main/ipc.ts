@@ -9,8 +9,10 @@ import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
 import type { DocOptions, ExportRequest, Settings } from "../shared/doc";
+import type { Provider } from "../shared/parse";
 
 const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx"];
+const PROVIDERS: readonly Provider[] = ["claude", "gemini", "codex", "ollama"];
 
 const windowOf = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
   BrowserWindow.fromWebContents(event.sender);
@@ -27,6 +29,15 @@ function cleanOptions(raw: unknown): DocOptions {
     out["imageOutput"] = o["imageOutput"];
   }
   if (typeof o["pages"] === "string" && o["pages"].trim() !== "") out["pages"] = o["pages"].trim();
+
+  if (o["engine"] === "local" || o["engine"] === "llm") out["engine"] = o["engine"];
+  if (PROVIDERS.includes(o["provider"] as Provider)) out["provider"] = o["provider"];
+  // 모델 이름은 자유 문자열이라 값을 검사할 수 없다. 길이만 막는다 — 인자로 나가므로
+  // 무한정 받을 이유가 없다.
+  if (typeof o["model"] === "string" && o["model"].trim() !== "") {
+    out["model"] = o["model"].trim().slice(0, 200);
+  }
+  if (o["inputMode"] === "A" || o["inputMode"] === "B") out["inputMode"] = o["inputMode"];
   return options;
 }
 

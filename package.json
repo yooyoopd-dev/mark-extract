@@ -14,9 +14,10 @@
     "start": "electron .",
     "smoke": "node scripts/smoke.mjs",
     "verify:parsers": "node scripts/verify-parsers.mjs",
-    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue",
-    "dist:win": "electron-builder --win portable",
-    "verify:queue": "node scripts/verify-queue.mjs"
+    "verify:queue": "node scripts/verify-queue.mjs",
+    "verify:llm": "node scripts/verify-llm.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm",
+    "dist:win": "electron-builder --win portable"
   },
   "devDependencies": {
     "@opendataloader/pdf": "^2.5.9",

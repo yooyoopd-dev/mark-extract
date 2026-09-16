@@ -34,7 +34,18 @@ export interface ParseError {
   readonly actions: readonly RetryAction[];
 }
 
-/** 인스펙터에서 온 문서별 옵션. 지금은 PDF 몫만 있다. */
+/** LLM 을 어떤 CLI 로 띄울지 (결정 9). */
+export type Provider = "claude" | "gemini" | "codex" | "ollama";
+
+/**
+ * LLM 에 무엇을 건넬지 (결정 10).
+ *
+ *   A — 파일 경로를 주고 CLI 가 자기 도구로 읽게 한다
+ *   B — 로컬 파서로 Markdown 을 뽑아 그 텍스트를 넘겨 다듬게 한다
+ */
+export type InputMode = "A" | "B";
+
+/** 인스펙터에서 온 문서별 옵션. */
 export interface DocOptions {
   /** 표 감지 방식. default = 테두리 기반, cluster = 테두리 + 군집 */
   readonly tableMethod?: "default" | "cluster";
@@ -48,6 +59,20 @@ export interface DocOptions {
   readonly pages?: string;
   /** 문서 열기 암호. 메모리에만 두고 저장하지 않는다 */
   readonly password?: string;
+
+  /* ── LLM 엔진 (6단계) ─────────────────────────────── */
+
+  /** 기본은 로컬. LLM 은 같은 문서라도 결과가 달라질 수 있다 */
+  readonly engine?: "local" | "llm";
+  readonly provider?: Provider;
+  /**
+   * 빈 값이면 CLI 기본값을 쓴다.
+   *
+   * 모델 목록을 앱에 박지 않는다 — CLI 버전마다 받는 이름이 다르고 우리가 고정하면
+   * 금방 낡는다. Ollama 만 설정 화면이 /api/tags 로 채운다 (6b).
+   */
+  readonly model?: string;
+  readonly inputMode?: InputMode;
 }
 
 export interface ParseRequest {

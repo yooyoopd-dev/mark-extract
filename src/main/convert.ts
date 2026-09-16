@@ -5,6 +5,7 @@
  * 실제와 다른 경우가 드물지 않고, 그때는 내용을 따라야 한다.
  */
 import { detectFormat } from "./detect-format";
+import { parseWithLlm } from "./llm/run";
 import { parsePdf } from "./parsers/pdf-opendataloader";
 import { parseOffice } from "./parsers/office-kordoc";
 import { parsePptx } from "./parsers/pptx";
@@ -25,7 +26,8 @@ function unsupported(detail: string): ParseResult {
   };
 }
 
-export async function convert(request: ParseRequest): Promise<ParseResult> {
+/** 형식을 보고 로컬 어댑터를 고른다. LLM 경로의 모드 B 1단계도 이것을 쓴다. */
+async function convertLocally(request: ParseRequest): Promise<ParseResult> {
   const format = await detectFormat(request.filePath);
 
   switch (format) {
@@ -40,4 +42,10 @@ export async function convert(request: ParseRequest): Promise<ParseResult> {
     default:
       return unsupported("알 수 없음 (매직 바이트로 판별 실패)");
   }
+}
+
+export async function convert(request: ParseRequest): Promise<ParseResult> {
+  // 엔진 선택은 문서 단위다 (결정 7). 기본은 로컬 — 재현 가능한 결과가 기본이어야 한다.
+  if (request.options?.engine === "llm") return parseWithLlm(request, convertLocally);
+  return convertLocally(request);
 }
