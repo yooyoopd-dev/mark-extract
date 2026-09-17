@@ -68,7 +68,8 @@ for (const name of ["claude", "gemini", "codex", "ollama"]) {
 // --version 에 0 이 아닌 값으로 답하는 CLI. 탐지가 "찾았지만 못 돈다"를 가려내는지 본다.
 writeFileSync(
   join(bin, WIN ? "badcli.cmd" : "badcli"),
-  WIN ? "@echo off\r\necho 부서짐 1>&2\r\nexit /b 2\r\n" : "#!/bin/sh\necho 부서짐 >&2\nexit 2\n",
+  // 본문을 한글로 두지 않는다. cmd.exe 는 OEM 코드페이지로 읽어 글자가 깨진다.
+  WIN ? "@echo off\r\necho broken 1>&2\r\nexit /b 2\r\n" : "#!/bin/sh\necho broken >&2\nexit 2\n",
   "utf8",
 );
 if (!WIN) chmodSync(join(bin, "badcli"), 0o755);
