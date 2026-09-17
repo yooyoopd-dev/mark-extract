@@ -11,6 +11,7 @@ import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { normalizeMarkdown } from "../normalize";
 import { diagnose } from "./diagnose";
+import { contextLength, looksTooLong } from "./ollama-http";
 import { buildPrompt, CANNOT_READ, type OutputLanguage } from "./prompt";
 import { providerOf } from "./providers";
 import { resolveCli } from "./resolve";
@@ -22,6 +23,7 @@ import type {
   ParseResult,
   Provider as ProviderId,
   RetryAction,
+  Warning,
 } from "../../shared/parse";
 
 /**
@@ -175,6 +177,8 @@ export function stripOuterFence(markdown: string): string {
 
 export interface LlmRequest extends ParseRequest {
   readonly language?: OutputLanguage;
+  /** Ollama 루프백 조회 주소. 설정에서 온다. */
+  readonly ollamaUrl?: string;
 }
 
 /**
@@ -219,6 +223,9 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
     return fail("LLM_MODEL_REQUIRED", "Ollama 는 모델 이름이 필요합니다. 인스펙터에서 지정하세요.", ["retry-plain"]);
   }
 
+  // 입력이 잘렸을 수 있다는 경고. 성공 결과에 실어 보낸다.
+  let truncationRisk: Warning | null = null;
+
   const { command, report } = await resolveCli(providerId);
   log.push({ label: "CLI 탐색", value: report.join(" / ") });
   if (command === null) {
@@ -251,6 +258,34 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
       }
       log.push({ label: "1단계", value: `로컬 파서 (${local.meta.engine}), ${local.markdown.length}자` });
       stdin = `${buildPrompt("B", request.language ?? "keep", fileName)}\n${local.markdown}\n--- 입력 끝 ---\n`;
+
+      // 입력이 모델 컨텍스트를 넘으면 조용히 잘린다. 사용자는 문서 뒷부분이 통째로
+      // 빠진 것을 나중에야 안다. Ollama 만 컨텍스트를 물어볼 수 있다 (결정 15).
+      if (providerId === "ollama" && model) {
+        const context = await contextLength(request.ollamaUrl ?? "http://127.0.0.1:11434", model);
+        if (context === null) {
+          log.push({
+            label: "컨텍스트",
+            value: "확인할 수 없습니다 — 입력이 잘려도 감지하지 못합니다. Ollama 가 떠 있는지 확인하세요.",
+          });
+          truncationRisk = {
+            code: "CONTEXT_UNKNOWN",
+            message:
+              "모델 컨텍스트 길이를 확인하지 못했습니다. 입력이 길면 뒷부분이 조용히 잘렸을 수 있습니다 " +
+              "— Ollama 루프백 조회에 응답이 없었습니다.",
+          };
+        } else if (looksTooLong(stdin.length, context)) {
+          log.push({ label: "컨텍스트", value: `${context} 토큰 · 입력 ${stdin.length}자 — 넘칠 수 있습니다` });
+          truncationRisk = {
+            code: "CONTEXT_OVERFLOW",
+            message:
+              `입력이 모델 컨텍스트(${context} 토큰)를 넘을 것으로 보입니다. 뒷부분이 잘렸을 수 있습니다 ` +
+              "— 문서를 나눠 변환하거나 컨텍스트가 더 긴 모델을 쓰세요.",
+          };
+        } else {
+          log.push({ label: "컨텍스트", value: `${context} 토큰 · 입력 ${stdin.length}자` });
+        }
+      }
     }
 
     const args = provider.args({ mode, ...(model === undefined ? {} : { model }) });
@@ -338,6 +373,7 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
           code: "LLM_NONDETERMINISTIC",
           message: "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다.",
         },
+        ...(truncationRisk === null ? [] : [truncationRisk]),
       ],
       log: [
         ...log,

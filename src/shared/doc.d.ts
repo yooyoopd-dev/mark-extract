@@ -4,7 +4,7 @@
  * 5단계부터 문서 목록은 main 이 들고 있다 (docs/design/01-architecture.md).
  * 렌더러는 이벤트로 받아 그리기만 한다.
  */
-import type { DocOptions as ParseOptions, ParseResult } from "./parse";
+import type { DocOptions as ParseOptions, InputMode, ParseResult, Provider } from "./parse";
 
 export type DocStatus = "queued" | "run" | "done" | "failed";
 export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx";
@@ -57,6 +57,28 @@ export interface Settings {
   frontmatter: boolean;
   theme: "system" | "light" | "dark";
   watch: WatchFolder[];
+
+  /* ── 새 문서에 심을 기본 옵션 (6b) ─────────────────── */
+  //
+  // 인스펙터에서 문서마다 덮어쓴다. 여기 값은 큐에 새로 들어오는 문서의 출발점일
+  // 뿐이고, 이미 들어와 있는 문서는 바꾸지 않는다 — 바꾸면 사용자가 손댄 설정이
+  // 조용히 날아간다.
+
+  /** 기본 엔진. 로컬이 기본이어야 한다 — 재현 가능한 결과가 기본이다 */
+  defaultEngine: "local" | "llm";
+  provider: Provider;
+  /** 빈 문자열이면 CLI 기본값 */
+  model: string;
+  inputMode: InputMode;
+  imageOutput: "off" | "embedded" | "external";
+  /** LLM 변환 1건의 제한 시간(분). 로컬 엔진은 10분 고정 */
+  llmTimeoutMin: number;
+  /** LLM 출력 언어 */
+  language: "ko" | "en" | "keep";
+  /** 이보다 큰 파일은 큐에 넣지 않는다 (MB). 결정 21 */
+  maxFileSizeMb: number;
+  /** Ollama 루프백 조회 주소. 본문 생성은 CLI 가 한다 (결정 15) */
+  ollamaUrl: string;
 }
 
 export interface ExportRequest {
@@ -70,4 +92,15 @@ export interface ExportResult {
   readonly written: number;
   readonly failed: number;
   readonly outputDir: string;
+}
+
+
+/** 설정 화면의 CLI 탐지 결과. 사내망 PC 는 화면에서 읽고 옮겨 적어야 한다. */
+export interface CliStatus {
+  readonly provider: Provider;
+  readonly label: string;
+  readonly found: boolean;
+  readonly command: string | null;
+  /** 어디를 어떻게 찾았는지. 실패했을 때 그대로 띄운다. */
+  readonly report: readonly string[];
 }

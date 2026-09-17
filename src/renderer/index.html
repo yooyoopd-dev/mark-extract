@@ -190,7 +190,7 @@
     <span class="sb-right">
       <span class="sb" id="sbTokens"></span>
       <button class="sb" id="sbZoom">110%</button>
-      <button class="sb" aria-label="설정"><svg class="icon"><use href="#i-gear"/></svg></button>
+      <button class="sb" id="sbSettings" aria-label="설정"><svg class="icon"><use href="#i-gear"/></svg></button>
     </span>
   </footer>
 </div>
@@ -247,6 +247,26 @@
       <button type="submit" class="btn primary">내보내기</button>
     </div>
   </form>
+</div>
+
+<!-- ============== 설정 ==============
+     원본에 없다 (docs/design/04-ui-spec.md). 원본의 다이얼로그 스타일을 그대로 쓴다.
+     내용은 JS 가 채운다 — 값이 설정에서 오고 절이 여럿이라 마크업을 손으로 두면
+     화면과 저장값이 어긋나기 쉽다. -->
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <h2 id="settingsTitle">설정</h2>
+    <div class="settings-tabs" role="tablist" aria-label="설정 구분">
+      <button class="tab" role="tab" data-pane="convert" aria-selected="true">변환</button>
+      <button class="tab" role="tab" data-pane="llm" aria-selected="false">LLM</button>
+      <button class="tab" role="tab" data-pane="general" aria-selected="false">일반</button>
+    </div>
+    <div class="body od-scroll" id="settingsBody"><!-- JS --></div>
+    <div class="foot">
+      <span class="settings-note od-fill" id="settingsNote">바꾸면 바로 저장됩니다.</span>
+      <button type="button" class="btn primary" id="settingsClose">닫기</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============== 드롭 오버레이 ============== -->

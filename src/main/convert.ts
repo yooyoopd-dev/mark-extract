@@ -6,6 +6,7 @@
  */
 import { detectFormat } from "./detect-format";
 import { parseWithLlm } from "./llm/run";
+import { settings } from "./settings";
 import { parsePdf } from "./parsers/pdf-opendataloader";
 import { parseOffice } from "./parsers/office-kordoc";
 import { parsePptx } from "./parsers/pptx";
@@ -46,6 +47,9 @@ async function convertLocally(request: ParseRequest): Promise<ParseResult> {
 
 export async function convert(request: ParseRequest): Promise<ParseResult> {
   // 엔진 선택은 문서 단위다 (결정 7). 기본은 로컬 — 재현 가능한 결과가 기본이어야 한다.
-  if (request.options?.engine === "llm") return parseWithLlm(request, convertLocally);
-  return convertLocally(request);
+  if (request.options?.engine !== "llm") return convertLocally(request);
+
+  // 출력 언어와 Ollama 주소는 문서별이 아니라 앱 전체 설정이다.
+  const { language, ollamaUrl } = settings();
+  return parseWithLlm({ ...request, language, ollamaUrl }, convertLocally);
 }

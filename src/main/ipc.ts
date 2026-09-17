@@ -8,7 +8,11 @@ import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
-import type { DocOptions, ExportRequest, Settings } from "../shared/doc";
+import { clearCache, resolveCli } from "./llm/resolve";
+import { providerOf } from "./llm/providers";
+import { listModels } from "./llm/ollama-http";
+import { promptText } from "./llm/prompt";
+import type { CliStatus, DocOptions, ExportRequest, Settings } from "../shared/doc";
 import type { Provider } from "../shared/parse";
 
 const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx"];
@@ -65,7 +69,7 @@ export function registerIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: [{ name: "문서", extensions: SUPPORTED }],
     });
-    return result.canceled ? { added: 0, skipped: 0 } : queue.add(result.filePaths);
+    return result.canceled ? { added: 0, skipped: 0, oversized: [] } : queue.add(result.filePaths);
   });
 
   /* 내보내기 -------------------------------------------- */
@@ -108,14 +112,50 @@ export function registerIpc(): void {
   });
   ipcMain.handle("watch:remove", (_e, path: string) => removeWatch(String(path)));
 
+  /* LLM 진단 ------------------------------------------- */
+  //
+  // 설정 화면이 쓴다. 사내망 PC 는 로그 파일을 반출할 수 없어, CLI 를 찾지 못했을 때
+  // 무엇을 어디서 어떻게 찾았는지 화면에서 읽고 옮겨 적을 수 있어야 한다.
+  ipcMain.handle("llm:detect", async (): Promise<CliStatus[]> => {
+    clearCache();
+    return Promise.all(
+      PROVIDERS.map(async (provider) => {
+        const { command, report } = await resolveCli(provider);
+        return { provider, label: providerOf(provider).label, found: command !== null, command, report };
+      }),
+    );
+  });
+
+  // 프롬프트 전문. 사내 검수 대상이 될 수 있어 열람·복사를 제공한다 (결정 25).
+  // 실제로 쓰이는 것과 같은 함수에서 만들어야 의미가 있다.
+  ipcMain.handle("llm:prompt", () => {
+    const { inputMode, language } = settings();
+    return promptText(inputMode, language);
+  });
+
+  // 설치된 Ollama 모델. 본문 생성은 CLI 가 하고 이 조회만 루프백 HTTP 다 (결정 15).
+  ipcMain.handle("llm:ollamaModels", () => listModels(settings().ollamaUrl));
+
   /* 설정 ------------------------------------------------ */
   ipcMain.handle("settings:get", () => settings());
   ipcMain.handle("settings:set", (_e, patch: Partial<Settings>) => {
+    // 아는 키만 받는다. 값 범위는 settings.ts 의 normalize 가 다시 본다.
     const clean: Partial<Settings> = {};
-    if (typeof patch?.concurrency === "number") clean.concurrency = patch.concurrency;
-    if (typeof patch?.frontmatter === "boolean") clean.frontmatter = patch.frontmatter;
-    if (patch?.theme === "system" || patch?.theme === "light" || patch?.theme === "dark") {
-      clean.theme = patch.theme;
+    const p = (patch ?? {}) as Record<string, unknown>;
+
+    for (const key of ["concurrency", "llmTimeoutMin", "maxFileSizeMb"] as const) {
+      if (typeof p[key] === "number") clean[key] = p[key] as number;
+    }
+    if (typeof p["frontmatter"] === "boolean") clean.frontmatter = p["frontmatter"];
+    for (const key of ["model", "ollamaUrl"] as const) {
+      if (typeof p[key] === "string") clean[key] = p[key] as string;
+    }
+    // 열거형은 normalize 가 모르는 값을 기본값으로 되돌리므로 그대로 넘긴다.
+    for (const key of ["theme", "defaultEngine", "provider", "inputMode", "imageOutput", "language"] as const) {
+      if (typeof p[key] === "string") clean[key] = p[key] as never;
+    }
+    if (p["outputDir"] === null || typeof p["outputDir"] === "string") {
+      clean.outputDir = p["outputDir"] as string | null;
     }
     return updateSettings(clean);
   });

@@ -16,7 +16,8 @@
     "verify:parsers": "node scripts/verify-parsers.mjs",
     "verify:queue": "node scripts/verify-queue.mjs",
     "verify:llm": "node scripts/verify-llm.mjs",
-    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm",
+    "verify:settings": "node scripts/verify-settings.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings",
     "dist:win": "electron-builder --win portable"
   },
   "devDependencies": {

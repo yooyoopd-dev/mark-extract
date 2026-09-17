@@ -73,6 +73,29 @@ function trim(): void {
   }
 }
 
+/**
+ * 설정에서 새 문서의 출발 옵션을 만든다.
+ *
+ * 이미 큐에 있는 문서는 건드리지 않는다 — 설정을 바꿨다고 사용자가 인스펙터에서
+ * 손댄 값이 조용히 날아가면 안 된다.
+ */
+function defaultOptions(): DocOptions {
+  const s = settings();
+  const options: DocOptions = {
+    engine: s.defaultEngine,
+    imageOutput: s.imageOutput,
+    timeoutMs: s.llmTimeoutMin * 60_000,
+  };
+  if (s.defaultEngine !== "llm") return options;
+
+  return {
+    ...options,
+    provider: s.provider,
+    inputMode: s.inputMode,
+    ...(s.model === "" ? {} : { model: s.model }),
+  };
+}
+
 /** 파일 하나를 큐에 넣는다. 이미 같은 경로가 있으면 건너뛴다. */
 async function addFile(path: string, options?: DocOptions): Promise<DocView | null> {
   const kind = kindOf(path);
@@ -86,6 +109,13 @@ async function addFile(path: string, options?: DocOptions): Promise<DocView | nu
     return null;
   }
 
+  // 너무 큰 파일은 넣지 않는다 (결정 21). 넣어 두면 변환이 오래 끌다 실패한다.
+  const limit = settings().maxFileSizeMb * 1024 * 1024;
+  if (size > limit) {
+    oversized.push({ name: basename(path), mb: Math.round(size / 1024 / 1024) });
+    return null;
+  }
+
   const view: Mutable<DocView> = {
     id: `d${++seq}`,
     name: basename(path),
@@ -95,7 +125,7 @@ async function addFile(path: string, options?: DocOptions): Promise<DocView | nu
     status: "queued",
     star: false,
     addedAt: Date.now(),
-    options: options ?? {},
+    options: options ?? defaultOptions(),
     result: null,
     snippet: "대기 중입니다.",
   };
@@ -129,11 +159,17 @@ async function expand(path: string, depth = 0): Promise<string[]> {
 export interface AddResult {
   readonly added: number;
   readonly skipped: number;
+  /** 크기 상한을 넘어 건너뛴 파일. 조용히 사라지면 사용자가 이유를 알 수 없다. */
+  readonly oversized: ReadonlyArray<{ name: string; mb: number }>;
 }
+
+/** addFile 이 채우고 add 가 비운다. 한 번의 add 호출 안에서만 산다. */
+const oversized: Array<{ name: string; mb: number }> = [];
 
 export async function add(paths: readonly string[]): Promise<AddResult> {
   let added = 0;
   let skipped = 0;
+  oversized.length = 0;
 
   for (const path of paths) {
     const files = await expand(path);
@@ -148,7 +184,7 @@ export async function add(paths: readonly string[]): Promise<AddResult> {
 
   emit();
   pump();
-  return { added, skipped };
+  return { added, skipped, oversized: [...oversized] };
 }
 
 export function remove(id: string): void {

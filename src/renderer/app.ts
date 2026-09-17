@@ -11,6 +11,7 @@ import { logText, renderViewer } from "./views/viewer.js";
 import { renderInspector } from "./views/inspector.js";
 import { initToasts, toast } from "./views/toast.js";
 import { openPalette, type Command } from "./views/palette.js";
+import { renderSettings, type Pane, type SettingsView } from "./views/settings.js";
 import {
   bodyKey,
   docs,
@@ -26,6 +27,7 @@ import {
   type DocView,
   type Tab,
 } from "./state.js";
+import type { Settings } from "../shared/doc";
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
@@ -412,6 +414,7 @@ function bind(): void {
   $("#paletteOpen").addEventListener("click", showPalette);
 
   bindExport();
+  bindSettings();
 
   // 창 조작 — 프레임 없는 창이라 우리가 그린다
   for (const [id, channel] of [
@@ -512,6 +515,163 @@ async function runExport(): Promise<void> {
   else toast(`${result.written}개 파일을 저장했습니다.`);
 }
 
+/* ── 설정 화면 ──────────────────────────────────────────── */
+
+const settingsOverlay = $("#settingsOverlay");
+const settingsBody = $("#settingsBody");
+
+/**
+ * 화면이 들고 있는 것. settings 자체는 main 이 진실이고 여기는 사본이다.
+ *
+ * SettingsView 는 렌더 함수의 계약이라 readonly 다. 여기서는 갱신해야 하므로 readonly
+ * 를 벗긴다 — 렌더러에 넘길 때는 원래 계약대로 읽기 전용으로 읽힌다.
+ */
+const settingsView: { -readonly [K in keyof SettingsView]: SettingsView[K] } = {
+  settings: {} as Settings,
+  pane: "convert",
+  cli: null,
+  ollama: null,
+  promptOpen: false,
+  prompt: "",
+  version: "",
+};
+
+function paintSettings(): void {
+  renderSettings(settingsBody, settingsView);
+  for (const tab of $$<HTMLButtonElement>(".settings-tabs .tab")) {
+    tab.setAttribute("aria-selected", String(tab.dataset["pane"] === settingsView.pane));
+  }
+}
+
+async function openSettings(): Promise<void> {
+  settingsView.settings = await window.markExtract.getSettings();
+  settingsView.version = window.markExtract.version;
+  settingsOverlay.hidden = false;
+  paintSettings();
+
+  // 탐지와 모델 조회는 느릴 수 있다. 화면을 먼저 띄우고 채운다.
+  if (settingsView.pane === "llm") void loadLlmStatus();
+}
+
+const closeSettings = (): void => {
+  settingsOverlay.hidden = true;
+};
+
+/** CLI 탐지와 Ollama 모델 목록. 둘 다 실패해도 화면은 계속 쓸 수 있어야 한다. */
+async function loadLlmStatus(): Promise<void> {
+  settingsView.cli = null;
+  settingsView.ollama = null;
+  paintSettings();
+
+  const [cli, ollama, prompt] = await Promise.all([
+    window.markExtract.detectCli(),
+    window.markExtract.ollamaModels(),
+    window.markExtract.promptText(),
+  ]);
+  settingsView.cli = cli;
+  settingsView.ollama = ollama;
+  settingsView.prompt = prompt;
+  paintSettings();
+}
+
+/** 값 하나를 바꾼다. 확인 버튼 없이 바로 저장한다. */
+async function saveSetting(key: string, value: unknown): Promise<void> {
+  settingsView.settings = await window.markExtract.setSettings({ [key]: value } as Partial<Settings>);
+
+  // 테마는 즉시 화면에 반영해야 한다.
+  if (key === "theme") {
+    state.theme = settingsView.settings.theme;
+    applyTheme();
+  }
+  if (key === "outputDir") state.outputDir = settingsView.settings.outputDir;
+  if (key === "frontmatter") state.frontmatter = settingsView.settings.frontmatter;
+
+  // 프롬프트는 입력 모드·출력 언어에 딸려 바뀐다.
+  if (key === "inputMode" || key === "language") {
+    settingsView.prompt = await window.markExtract.promptText();
+  }
+  // 프로바이더를 Ollama 로 바꾸면 모델 목록을 다시 받는다.
+  if (key === "provider" || key === "ollamaUrl") {
+    settingsView.ollama = null;
+    paintSettings();
+    settingsView.ollama = await window.markExtract.ollamaModels();
+  }
+  paintSettings();
+  $("#settingsNote").textContent = "저장했습니다.";
+}
+
+function bindSettings(): void {
+  $("#sbSettings").addEventListener("click", () => void openSettings());
+  $("#settingsClose").addEventListener("click", closeSettings);
+  settingsOverlay.addEventListener("click", (event) => {
+    if (event.target === settingsOverlay) closeSettings();
+  });
+
+  for (const tab of $$<HTMLButtonElement>(".settings-tabs .tab")) {
+    tab.addEventListener("click", () => {
+      settingsView.pane = (tab.dataset["pane"] ?? "convert") as Pane;
+      paintSettings();
+      if (settingsView.pane === "llm" && settingsView.cli === null) void loadLlmStatus();
+    });
+  }
+
+  // 값 변경 — select·input 을 한 자리에서 받는다.
+  settingsBody.addEventListener("change", (event) => {
+    const el = (event.target as HTMLElement).closest<HTMLInputElement | HTMLSelectElement>("[data-set]");
+    if (!el) return;
+
+    const key = el.dataset["set"]!;
+    const value =
+      el instanceof HTMLInputElement && el.type === "checkbox"
+        ? el.checked
+        : el instanceof HTMLInputElement && el.type === "number"
+          ? Number(el.value)
+          : el.value;
+    void saveSetting(key, value);
+  });
+
+  settingsBody.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    if (target.closest("#redetect")) return void loadLlmStatus();
+    if (target.closest("#togglePrompt")) {
+      settingsView.promptOpen = !settingsView.promptOpen;
+      return paintSettings();
+    }
+    if (target.closest("#copyPrompt")) {
+      return void navigator.clipboard.writeText(settingsView.prompt).then(() => toast("프롬프트를 복사했습니다."));
+    }
+    if (target.closest("#copyReport")) {
+      // 사내망 PC 는 로그를 반출할 수 없다. 화면의 것을 그대로 가져갈 수 있어야 한다.
+      const text = (settingsView.cli ?? [])
+        .map((c) => `[${c.label}] ${c.found ? c.command : "찾지 못함"}\n${c.report.map((l) => `  ${l}`).join("\n")}`)
+        .join("\n\n");
+      return void navigator.clipboard.writeText(text).then(() => toast("진단 리포트를 복사했습니다."));
+    }
+    if (target.closest("#pickOutputDir")) {
+      return void window.markExtract.pickOutputDir().then((dir) => {
+        if (dir) void saveSetting("outputDir", dir);
+      });
+    }
+    if (target.closest("#addWatchFromSettings")) {
+      return void pickWatch().then(async () => {
+        settingsView.settings = await window.markExtract.getSettings();
+        paintSettings();
+      });
+    }
+
+    const unwatch = target.closest<HTMLElement>("[data-unwatch]")?.dataset["unwatch"];
+    if (unwatch) {
+      void window.markExtract.removeWatch(unwatch).then(async (watch) => {
+        state.watch = watch;
+        settingsView.settings = await window.markExtract.getSettings();
+        paintSettings();
+        render();
+      });
+    }
+  });
+}
+
 /* ── 커맨드 팔레트 ──────────────────────────────────────── */
 
 function showPalette(): void {
@@ -521,6 +681,7 @@ function showPalette(): void {
     { id: "theme", label: "테마 전환", icon: "i-moon", run: toggleTheme },
     { id: "copy", label: "Markdown 복사", icon: "i-copy", run: () => void copyMarkdown() },
     { id: "export", label: "Markdown 내보내기", icon: "i-down", hint: "Ctrl+E", run: openExport },
+    { id: "settings", label: "설정", icon: "i-gear", hint: "Ctrl+,", run: () => void openSettings() },
     {
       id: "reconvert",
       label: "재변환",
@@ -549,7 +710,11 @@ function globalKeys(): void {
     } else if (mod && event.key.toLowerCase() === "e") {
       event.preventDefault();
       openExport();
+    } else if (mod && event.key === ",") {
+      event.preventDefault();
+      void openSettings();
     } else if (event.key === "Escape") {
+      if (!settingsOverlay.hidden) closeSettings();
       if (!exportOverlay.hidden) closeExport();
       app.dataset["sidebar"] = "closed";
       app.dataset["inspector"] = "closed";

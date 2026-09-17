@@ -1,7 +1,7 @@
 /** preload 가 contextBridge 로 노출하는 표면. preload 와 렌더러가 함께 쓴다. */
-import type { DocOptions, DocView, ExportResult, Settings, WatchFolder } from "./doc";
+import type { CliStatus, DocOptions, DocView, ExportResult, Settings, WatchFolder } from "./doc";
 
-export type { DocKind, DocOptions, DocStatus, DocView, ExportResult, Settings, WatchFolder } from "./doc";
+export type { CliStatus, DocKind, DocOptions, DocStatus, DocView, ExportResult, Settings, WatchFolder } from "./doc";
 export type { ParseResult } from "./parse";
 
 export type WindowAction = "minimize" | "maximize" | "close";
@@ -9,6 +9,8 @@ export type WindowAction = "minimize" | "maximize" | "close";
 export interface AddResult {
   readonly added: number;
   readonly skipped: number;
+  /** 크기 상한을 넘어 건너뛴 파일. 조용히 사라지면 사용자가 이유를 알 수 없다. */
+  readonly oversized: ReadonlyArray<{ name: string; mb: number }>;
 }
 
 export interface MarkExtractApi {
@@ -53,6 +55,12 @@ export interface MarkExtractApi {
   /* 설정 */
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+
+  /* LLM 진단 (설정 화면) */
+  detectCli(): Promise<CliStatus[]>;
+  /** 프롬프트 전문. 실제로 쓰이는 것과 같은 함수에서 만든다 (결정 25) */
+  promptText(): Promise<string>;
+  ollamaModels(): Promise<{ ok: boolean; models: string[]; detail: string }>;
 
   /* 창 — 프레임이 없어 캡션 버튼을 우리가 그린다 */
   window(action: WindowAction): Promise<void>;
