@@ -13,6 +13,7 @@
  */
 import { access, constants } from "node:fs/promises";
 import { delimiter, join } from "node:path";
+import { isShim } from "./launch";
 import type { Provider } from "../../shared/parse";
 
 export interface Resolved {
@@ -54,7 +55,7 @@ async function search(name: string, report: string[]): Promise<string | null> {
       const full = join(dir, candidate);
       if (await executable(full)) {
         // 사내망 PC 는 화면에 뜨는 것이 전부다. 셰임이면 왜 한 겹 더 거치는지 남긴다.
-        report.push(`찾음: ${full}${/\.(cmd|bat)$/i.test(full) ? " (배치 셰임 — cmd.exe 로 실행합니다)" : ""}`);
+        report.push(`찾음: ${full}${isShim(full) ? " (배치 셰임 — cmd.exe 로 실행합니다)" : ""}`);
         return full;
       }
     }

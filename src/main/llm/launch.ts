@@ -15,6 +15,9 @@ import { spawn } from "node:child_process";
 /** cmd.exe 를 거쳐야 하는 파일. */
 const SHIM = /\.(cmd|bat)$/i;
 
+/** 셰임인가. resolve.ts 가 리포트 문구를 고를 때 같은 규칙을 쓴다. */
+export const isShim = (path: string): boolean => SHIM.test(path);
+
 /** CLI 가 살아 있는지 보는 데 이만큼이면 충분하다. 설정 화면이 기다리는 시간이다. */
 const PROBE_MS = 5000;
 
