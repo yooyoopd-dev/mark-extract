@@ -287,16 +287,31 @@ try {
   check("원본 경로가 인자에 없다", !args.includes("test/fixtures"), args);
   check("원본 폴더 이름도 인자에 없다", !args.includes(dirname(fixture("sample-ko.docx"))), args);
 
-  // 인자 왕복. Windows 에서는 셰임이 `.cmd` 라 cmd.exe 를 거치므로, 이 단언이
-  // 인용 규칙이 실제로 맞는지를 증명한다. 리눅스에서는 그냥 지나간다.
-  const TRICKY = 'a&b c"d^e|f';
-  const tricky = await run("claude", { fake: "probe", mode: "A", model: TRICKY });
-  const argv = JSON.parse(/ARGV=(.*)/.exec(tricky.markdown)?.[1] ?? "[]");
-  check(
-    `특수문자 인자가 글자 그대로 도착한다 (${process.platform})`,
-    argv.includes(TRICKY),
-    JSON.stringify(argv),
-  );
+  // 인자 왕복. Windows 에서는 셰임이 `.cmd` 라 cmd.exe 를 거치고, 그 배치 파일이
+  // 다시 `%*` 로 인자를 펼친다 — cmd 파서를 두 번 지나간다. 어떤 글자가 그 왕복을
+  // 견디는지는 짐작할 것이 아니라 재야 한다. 글자마다 따로 본다.
+  const ROUND_TRIP = [
+    ["평범한 모델 이름", "qwen2.5:14b"],
+    ["공백", "a b"],
+    ["앰퍼샌드", "a&b"],
+    ["파이프", "a|b"],
+    ["꺾쇠", "a<b>c"],
+    ["캐럿", "a^b"],
+    ["따옴표", 'a"b'],
+    ["퍼센트", "a%b"],
+    ["느낌표", "a!b"],
+    ["한글", "모델-가나다"],
+    ["Windows 경로 모양", "C:\\Temp\\문서 폴더\\x.txt"],
+  ];
+  for (const [label, value] of ROUND_TRIP) {
+    const trip = await run("claude", { fake: "probe", mode: "A", model: value });
+    const argv = JSON.parse(/ARGV=(.*)/.exec(trip.markdown ?? "")?.[1] ?? "null");
+    check(
+      `인자 왕복 — ${label}`,
+      Array.isArray(argv) && argv.includes(value),
+      argv === null ? `변환 자체가 실패: ${trip.error?.code} ${trip.error?.message?.slice(0, 80)}` : JSON.stringify(argv),
+    );
+  }
 
   await sleep(200);
   const after = readdirSync(tmpdir()).filter((n) => n.startsWith("markextract-llm-")).length;
