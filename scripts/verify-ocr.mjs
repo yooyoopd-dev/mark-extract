@@ -25,7 +25,7 @@ require.cache[require.resolve("electron")] = {
 };
 
 const { testHybrid, isRemote } = require(join(root, "out/main/hybrid-http.js"));
-const { buildArgsForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
+const { buildArgsForVerify, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -167,16 +167,68 @@ try {
   );
   check("그대로 재시도를 제안한다", down.error?.actions.includes("retry-plain"), JSON.stringify(down.error?.actions));
 
-  // --quiet 를 빼면서 되살아난 것. 그전에는 collectWarnings 가 한 줄도 받지 못했다.
   const plain = await parsePdf({ filePath: fixture, options: {}, hybridUrl: DEAD });
   check("OCR 을 끄면 그대로 변환된다", plain.ok === true, JSON.stringify(plain.error));
+
+  /* ── 5. stderr 레벨 가르기 ────────────────────────── */
+  //
+  // 처음에는 "sample-ko.pdf 를 변환하면 경고가 하나 나온다"로 단언했는데, 그건 우리
+  // 코드가 아니라 **엔진이 그 파일에 무엇을 내느냐**에 대한 단언이었다. 리눅스에서는
+  // Detected background 가 나오고 Windows 에서는 나오지 않아 CI 가 잡았다.
+  // 검증할 것은 javaLog() 가 레벨을 가르는 일이다. 실측한 stderr 를 그대로 먹인다.
+  console.log("\nstderr 레벨 가르기");
+
+  const REAL = [
+    "Sep 17, 2026 2:25:00 PM org.opendataloader.pdf.processors.DocumentProcessor preprocessing",
+    "INFO: File name: /tmp/a.pdf",
+    "Sep 17, 2026 2:25:00 PM org.opendataloader.pdf.processors.DocumentProcessor calculateDocumentInfo",
+    "INFO: Number of pages: 1",
+    "Sep 17, 2026 2:25:00 PM org.opendataloader.pdf.processors.HybridDocumentProcessor processBackendPath",
+    "WARNING: Detected background on page 1",
+    "Sep 17, 2026 2:25:00 PM org.opendataloader.pdf.cli.CLIMain processFile",
+    "SEVERE: Exception during processing file /tmp/a.pdf: Hybrid server is not available at http://127.0.0.1:59999",
+    "To start the local hybrid server:",
+    '  1. Install: pip install "opendataloader-pdf[hybrid]"',
+    "  2. Start:   opendataloader-pdf-hybrid --port 5002",
+    "Or run without --hybrid flag for Java-only processing.",
+  ].join("\n");
+
+  const parsed = javaLogForVerify(REAL);
+  check("WARNING 이 사용자 경고가 된다", parsed.warnings.length === 1, JSON.stringify(parsed.warnings));
   check(
-    "엔진 경고가 사용자에게 전달된다",
-    plain.warnings.some((w) => w.code === "ENGINE_WARNING"),
-    JSON.stringify(plain.warnings),
+    "경고 본문이 그대로 실린다",
+    parsed.warnings[0]?.message === "Detected background on page 1",
+    JSON.stringify(parsed.warnings[0]),
+  );
+  check("경고 코드는 ENGINE_WARNING", parsed.warnings[0]?.code === "ENGINE_WARNING");
+  check("SEVERE 는 실패 사유로 간다", parsed.severe.length === 1, JSON.stringify(parsed.severe));
+  check(
+    "여러 줄짜리 SEVERE 가 끝까지 모인다",
+    parsed.severe[0]?.includes("pip install") && parsed.severe[0]?.includes("Java-only processing"),
+    JSON.stringify(parsed.severe[0]),
+  );
+  check(
+    "INFO 는 버린다",
+    !JSON.stringify(parsed).includes("Number of pages"),
+    JSON.stringify(parsed).slice(0, 120),
   );
 
-  /* ── 5. 기존 인자가 그대로인지 ────────────────────── */
+  // INFO 분기가 실제로 하는 일. 머리글 줄 없이 INFO 가 바로 붙는 경우, 그것을
+  // 끊어 주지 않으면 앞 기록의 본문에 빨려 들어간다. 지금 포매터는 늘 머리글을
+  // 내지만, 그 사실에 기대는 코드를 시험 없이 두지 않는다.
+  const glued = javaLogForVerify(
+    ["SEVERE: 무언가 실패했습니다", "  이어지는 줄", "INFO: 페이지 수 3", "INFO: 제목 없음"].join("\n"),
+  );
+  check("머리글 없이 붙은 INFO 가 앞 기록에 섞이지 않는다", glued.severe.length === 1, JSON.stringify(glued));
+  check(
+    "그 INFO 본문도 버려진다",
+    !glued.severe[0]?.includes("페이지 수"),
+    JSON.stringify(glued.severe[0]),
+  );
+  const blank = javaLogForVerify("");
+  check("빈 stderr 는 아무것도 만들지 않는다", blank.warnings.length === 0 && blank.severe.length === 0);
+
+  /* ── 6. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");
   const base = line({});
   for (const flag of ["--format markdown", "--keep-line-breaks", "--markdown-with-html", "--output-dir"]) {

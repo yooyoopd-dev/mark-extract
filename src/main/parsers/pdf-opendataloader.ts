@@ -239,6 +239,9 @@ function javaLog(stderr: string): { warnings: Warning[]; severe: string[] } {
   return { warnings, severe };
 }
 
+/** 검증 전용. 합성 stderr 로 레벨 가르기를 직접 본다 (scripts/verify-ocr.mjs). */
+export const javaLogForVerify = javaLog;
+
 /** 서버가 꺼져 있을 때 CLI 가 내는 문구 (실측). 사유를 특정하는 데 쓴다. */
 const HYBRID_DOWN = /Hybrid server is not available/i;
 
