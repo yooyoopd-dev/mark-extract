@@ -8,7 +8,12 @@ const electron = join(root, "node_modules/.bin/electron");
 
 // 헤드리스 리눅스에서는 xvfb 로 감싼다. 디스플레이가 있으면 그대로 띄운다.
 // 빈 화면이 아니라 실제로 채운 UI 를 검증한다. 앱은 argv 의 문서를 시작할 때 연다.
-const samples = ["pdf", "docx", "xlsx", "pptx"].map((ext) => join(root, `test/fixtures/sample-ko.${ext}`));
+// sample-table.docx 를 함께 연다. 셀 안 <br> 과 병합 표가 있는 유일한 자료라서,
+// 이것이 없으면 "<br> 이 글자로 보이지 않는다" 검사가 헛돈다.
+const samples = [
+  ...["pdf", "docx", "xlsx", "pptx"].map((ext) => join(root, `test/fixtures/sample-ko.${ext}`)),
+  join(root, "test/fixtures/sample-table.docx"),
+];
 const entry = ["scripts/smoke-main.cjs", ...samples];
 
 const headless = process.platform === "linux" && !process.env["DISPLAY"];

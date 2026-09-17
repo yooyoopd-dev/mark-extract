@@ -24,13 +24,29 @@ import type {
   RetryAction,
 } from "../../shared/parse";
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * LLM 은 로컬 엔진보다 훨씬 오래 걸릴 수 있다. 14B 모델이 CPU 에서 긴 문서를 다시
+ * 쓰면 수십 분이 정상이다 (build.8 실측). 10분으로 끊으면 정상 동작을 실패로
+ * 만든다.
+ */
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+/** 이 시간 동안 한 글자도 오지 않으면 로그에 남긴다. 멈춘 것인지 가늠하는 단서다. */
+const SILENT_WARN_MS = 2 * 60 * 1000;
 
 interface RunOutcome {
   readonly code: number | null;
   readonly body: string;
   readonly stderr: string;
   readonly state: ParseState;
+  /** 첫 글자가 오기까지 걸린 시간. 한 글자도 못 받았으면 null. */
+  readonly firstCharMs: number | null;
+}
+
+interface SpawnExtras {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+  /** 받은 글자 수를 올린다. 총량을 모르므로 퍼센트는 만들지 않는다. */
+  readonly onChars?: (chars: number) => void;
 }
 
 function spawnCli(
@@ -39,9 +55,10 @@ function spawnCli(
   stdin: string,
   cwd: string | undefined,
   consume: (line: string, state: ParseState) => string | null,
-  signal?: AbortSignal,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  extras: SpawnExtras = {},
 ): Promise<RunOutcome> {
+  const { signal, onChars } = extras;
+  const timeoutMs = extras.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const options: Parameters<typeof spawn>[2] = { shell: false };
     if (cwd !== undefined) options.cwd = cwd;
@@ -52,6 +69,13 @@ function spawnCli(
     let stderr = "";
     let pending = "";
     let settled = false;
+    let firstCharMs: number | null = null;
+    const started = Date.now();
+
+    const grew = (): void => {
+      if (firstCharMs === null && body !== "") firstCharMs = Date.now() - started;
+      onChars?.(body.length);
+    };
 
     const finish = (fn: () => void): void => {
       if (settled) return;
@@ -91,7 +115,10 @@ function spawnCli(
         const line = pending.slice(0, at).replace(/\r$/, "");
         pending = pending.slice(at + 1);
         const text = consume(line, state);
-        if (text !== null) body += text;
+        if (text !== null) {
+          body += text;
+          grew();
+        }
         at = pending.indexOf("\n");
       }
     });
@@ -113,9 +140,12 @@ function spawnCli(
       // 마지막 줄에 개행이 없을 수 있다.
       if (pending.trim() !== "") {
         const text = consume(pending.replace(/\r$/, ""), state);
-        if (text !== null) body += text;
+        if (text !== null) {
+          body += text;
+          grew();
+        }
       }
-      finish(() => resolve({ code, body, stderr, state }));
+      finish(() => resolve({ code, body, stderr, state, firstCharMs }));
     });
 
     child.stdin?.on("error", () => {
@@ -226,14 +256,38 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
     const args = provider.args({ mode, ...(model === undefined ? {} : { model }) });
     log.push({ label: "인자", value: `${command} ${args.join(" ")}` });
 
-    const outcome = await spawnCli(
-      command,
-      args,
-      stdin,
-      sandbox ?? undefined,
-      provider.consume,
-      request.signal,
-    );
+    // 아무것도 오지 않는 동안에도 화면이 경과 시간을 셀 수 있게 0 을 한 번 올린다.
+    request.onProgress?.(0, 0);
+    let silentWarned = false;
+    const startedSpawn = Date.now();
+
+    const extras: Parameters<typeof spawnCli>[5] = {
+      onChars: (chars) => {
+        request.onProgress?.(chars, 0);
+      },
+    };
+    if (request.signal) (extras as { signal?: AbortSignal }).signal = request.signal;
+    if (request.options?.timeoutMs !== undefined) {
+      (extras as { timeoutMs?: number }).timeoutMs = request.options.timeoutMs;
+    }
+
+    // 2분 넘게 한 글자도 오지 않으면 로그에 남긴다. 멈춘 것인지 모델을 올리는
+    // 중인지 사용자가 가늠할 단서가 된다.
+    const silentTimer = setInterval(() => {
+      if (silentWarned) return;
+      silentWarned = true;
+      log.push({
+        label: "대기",
+        value: `${Math.round((Date.now() - startedSpawn) / 1000)}초 동안 첫 글자를 받지 못했습니다 — 모델을 올리는 중이거나 응답이 없습니다.`,
+      });
+    }, SILENT_WARN_MS);
+
+    let outcome;
+    try {
+      outcome = await spawnCli(command, args, stdin, sandbox ?? undefined, provider.consume, extras);
+    } finally {
+      clearInterval(silentTimer);
+    }
     const elapsedMs = Date.now() - started;
     const markdown = normalizeMarkdown(stripOuterFence(outcome.body));
 
@@ -285,7 +339,14 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
           message: "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다.",
         },
       ],
-      log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
+      log: [
+        ...log,
+        {
+          label: "첫 응답",
+          value: outcome.firstCharMs === null ? "없음" : `${(outcome.firstCharMs / 1000).toFixed(1)}초`,
+        },
+        { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` },
+      ],
       meta: { engine: `LLM · ${provider.label}`, elapsedMs },
     };
   } catch (error) {

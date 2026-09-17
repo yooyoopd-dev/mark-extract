@@ -102,7 +102,7 @@ app.whenReady().then(async () => {
         var tries = 0;
         var timer = setInterval(function () {
           var cards = document.querySelectorAll("#docList .doc").length;
-          var done = document.querySelectorAll("#docList .st.done").length;
+          var done = document.querySelectorAll("#docList .status.done").length;
           if ((cards > 0 && done === cards) || ++tries > 400) {
             clearInterval(timer);
             resolve({ cards: cards, done: done });
@@ -135,6 +135,75 @@ app.whenReady().then(async () => {
 
     // 렌더러 콘솔 오류는 조용히 지나가므로 따로 모은다.
     if (consoleErrors.length > 0) failures.push(`렌더러 콘솔 오류: ${consoleErrors.join(" | ")}`);
+
+    // 상태 칩과 진행 표시. 4단계에서 클래스 이름을 .status 대신 .st 로 잘못 옮겨
+    // 칩에 CSS 가 하나도 걸리지 않았고 스피너도 돌지 않았다 (build.8 실측). 이름이
+    // 또 어긋나면 계산된 스타일로 잡는다.
+    const chip = await win.webContents.executeJavaScript(`(() => {
+      const done = document.querySelector("#docList .status.done");
+      if (!done) return { error: "완료 상태 칩을 찾지 못함" };
+      const s = getComputedStyle(done);
+      // 변환 중 칩은 지금 없으므로 규칙 자체가 살아 있는지 본다.
+      const probe = document.createElement("span");
+      probe.className = "status run";
+      probe.innerHTML = '<svg class="icon"></svg>';
+      document.body.appendChild(probe);
+      const spinner = getComputedStyle(probe.querySelector(".icon")).animationName;
+      const runBg = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { bg: s.backgroundColor, color: s.color, spinner, runBg };
+    })()`);
+    if (chip.error) failures.push(chip.error);
+    else {
+      const transparent = (c) => c === "transparent" || /rgba\(0,\s*0,\s*0,\s*0\)/.test(c);
+      if (transparent(chip.bg)) failures.push(`완료 상태 칩에 배경색이 없음 (${chip.bg}) — .status 규칙이 걸리지 않았습니다`);
+      if (transparent(chip.runBg)) failures.push(`변환중 상태 칩에 배경색이 없음 (${chip.runBg})`);
+      if (chip.spinner !== "spin") failures.push(`변환중 칩 아이콘이 돌지 않음 (animation-name=${chip.spinner})`);
+    }
+
+    // 렌더링 탭에서 <br> 이 글자로 보이면 안 된다. 두 로컬 엔진 모두 표 셀 안에서
+    // 이걸 내놓는다 (build.8 실측 보고 3·4). 셀 안 줄바꿈이 있는 sample-table.docx
+    // 를 골라야 의미가 있다 — 단순 표만 보면 검사가 헛돈다.
+    const br = await win.webContents.executeJavaScript(`(() => {
+      const card = [...document.querySelectorAll("#docList .doc")]
+        .find((el) => (el.textContent ?? "").includes("sample-table"));
+      if (!card) return { error: "sample-table 카드를 찾지 못함" };
+      card.click();
+      return new Promise((resolve) => setTimeout(() => {
+        const article = document.querySelector("#panel .reading");
+        if (!article) return resolve({ error: "렌더링 영역 없음" });
+        const text = article.textContent ?? "";
+        resolve({
+          literal: text.includes("<br>"),
+          // 표 셀이 실제로 줄바꿈으로 나뉘었는지
+          breaks: article.querySelectorAll("td br, th br, br").length,
+          cells: article.querySelectorAll("td").length,
+          // 바꾸지 못한 HTML 표가 남으면 렌더러가 .rawtable 로 감싼다.
+          raw: article.querySelectorAll(".rawtable").length,
+          // 병합 표가 펼쳐졌으면 헤더가 3칸이어야 한다 (2026년 추진 계획 × 3).
+          widestRow: Math.max(0, ...[...article.querySelectorAll("tr")].map((r) => r.children.length)),
+          // 셀 안의 \| 는 칸 구분자가 아니다. 이걸 못 알아보면 그 행만 칸이 는다.
+          escapedPipeRow: [...article.querySelectorAll("tr")]
+            .filter((r) => (r.textContent ?? "").includes("파이프"))
+            .map((r) => ({ cells: r.children.length, text: (r.textContent ?? "").trim() }))[0] ?? null,
+        });
+      }, 700));
+    })()`);
+    if (br.error) failures.push(br.error);
+    else {
+      if (br.literal) failures.push("렌더링 탭에 <br> 이 글자로 보입니다");
+      if (br.breaks === 0) failures.push("표 셀 안 줄바꿈이 <br> 로 그려지지 않았습니다");
+      if (br.cells === 0) failures.push("표가 그려지지 않았습니다");
+      if (br.raw > 0) failures.push(`HTML 표 ${br.raw}개가 Markdown 으로 바뀌지 않았습니다`);
+      if (br.widestRow < 3) failures.push(`병합 표가 펼쳐지지 않았습니다 (가장 넓은 행 ${br.widestRow}칸, 기대 3칸)`);
+      if (br.escapedPipeRow === null) failures.push("파이프가 든 표 행을 찾지 못함");
+      else {
+        if (br.escapedPipeRow.cells !== 2) {
+          failures.push(`이스케이프된 파이프가 칸을 쪼갰습니다 (${br.escapedPipeRow.cells}칸, 기대 2칸)`);
+        }
+        if (br.escapedPipeRow.text.includes("\\|")) failures.push("표에 \\| 가 글자로 보입니다");
+      }
+    }
 
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을

@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
+import { cleanHtmlInMarkdown } from "../html-in-markdown";
 import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
@@ -143,6 +144,11 @@ function buildArgs(filePath: string, outputDir: string, options: DocOptions = {}
     "--format", "markdown",
     // 줄 경계를 살려 받는다. 문단 잇기는 normalize.ts 가 CJK 를 봐 가며 한다.
     "--keep-line-breaks",
+    // 표를 <table> 로 받는다. 이것 없이 받은 파이프 표는 두 가지가 깨져 있었다
+    // (build.8 실측): 병합된 값이 사라지고, 셀 안의 | 가 이스케이프되지 않아
+    // 행이 쪼개진다. HTML 로 받으면 구조가 남고, html-in-markdown.ts 가 kordoc
+    // 출력과 같은 방식으로 파이프 표로 바꾼다.
+    "--markdown-with-html",
     "--quiet",
     "--output-dir", outputDir,
   ];
@@ -221,8 +227,11 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
       };
     }
 
+    // 표를 먼저 파이프 표로 바꾼다. 줄 잇기보다 앞서야 한다 — HTML 표는 여러 줄에
+    // 걸쳐 있어서 먼저 이으면 태그가 한 줄로 뭉개진다.
+    const cleaned = cleanHtmlInMarkdown(await readFile(join(dir, first), "utf8"));
     // --keep-line-breaks 로 받았으므로 문단 잇기는 우리 몫이다.
-    const markdown = normalizeMarkdown(joinWrappedLines(await readFile(join(dir, first), "utf8")));
+    const markdown = normalizeMarkdown(joinWrappedLines(cleaned.markdown));
 
     if (markdown.trim() === "") {
       return {
@@ -242,7 +251,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     return {
       ok: true,
       markdown,
-      warnings: collectWarnings(stderr),
+      warnings: [...collectWarnings(stderr), ...cleaned.warnings],
       log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
       meta: { engine: ENGINE, elapsedMs },
     };

@@ -27,10 +27,11 @@ function card(doc: Doc): string {
       </div>
       <p class="doc-snip od-clamp-2">${esc(doc.snippet)}</p>
       <div class="doc-foot">
-        <span class="st ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
+        <span class="status ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
         <span class="doc-meta">${sizeLabel(doc.size)}</span>
         <span class="doc-meta doc-time">${timeLabel(doc.addedAt)}</span>
       </div>
+      ${doc.status === "run" ? `<span class="bar"><i data-progress="${doc.progress ?? 0}"></i></span>` : ""}
     </button>`;
 }
 
@@ -53,4 +54,10 @@ export function renderList(host: HTMLElement, title: HTMLElement): void {
   }
 
   host.innerHTML = list.map(card).join("");
+
+  // 진행률은 style 속성으로 줄 수 없다 — CSP 가 style-src 'self' 라 인라인 style
+  // 이 막힌다 (원본은 style="width:N%" 를 썼다). 렌더 뒤에 직접 넣는다.
+  for (const fill of host.querySelectorAll<HTMLElement>(".bar > i[data-progress]")) {
+    fill.style.width = `${fill.dataset["progress"] ?? 0}%`;
+  }
 }

@@ -73,6 +73,13 @@ export interface DocOptions {
    */
   readonly model?: string;
   readonly inputMode?: InputMode;
+  /**
+   * 변환 1건의 제한 시간. 비우면 엔진별 기본값 — 로컬 10분, LLM 30분.
+   *
+   * LLM 을 길게 잡는 이유는 로컬 모델 때문이다. 14B 모델이 CPU 에서 긴 문서를 다시
+   * 쓰면 수십 분이 정상이다 (build.8 실측 보고).
+   */
+  readonly timeoutMs?: number;
 }
 
 export interface ParseRequest {

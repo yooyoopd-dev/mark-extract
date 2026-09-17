@@ -27,14 +27,26 @@ function inline(text: string): string {
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      // GFM 에서 표 셀 안의 줄바꿈은 <br> 로 쓴다. 두 로컬 엔진 모두 이걸 내놓고,
+      // 어댑터도 셀 안 개행을 <br> 로 바꾼다 (html-in-markdown.ts). esc() 로
+      // 막아 두면 사용자에게 "<br>" 이라는 글자가 그대로 보인다 — build.8 실측에서
+      // 보고된 증상이다. 되살리는 것은 이 하나뿐이고 나머지 태그는 글자로 둔다.
+      .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
   );
 }
 
+/**
+ * 표의 한 행을 칸으로 나눈다.
+ *
+ * `\|` 는 셀 안의 파이프이지 칸 구분자가 아니다. 그냥 split("|") 하면 그런 행이
+ * 칸 수가 더 많아져 표가 어긋난다 — 우리 어댑터가 셀 안의 파이프를 이스케이프해
+ * 내보내므로(html-in-markdown.ts) 실제로 일어난다.
+ */
 const cells = (row: string): string[] =>
   row
-    .replace(/^\||\|$/g, "")
-    .split("|")
-    .map((c) => c.trim());
+    .replace(/^\||(?<!\\)\|$/g, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, "|"));
 
 const isBlock = (line: string): boolean =>
   /^(#{1,6}\s|>|```|\||\s*[-*]\s|\s*\d+\.\s|---+\s*$)/.test(line);
@@ -121,6 +133,19 @@ export function renderMarkdown(source: string): string {
     if (comment?.[1]) {
       out.push(`<p class="reading-note">${esc(comment[1])}</p>`);
       i += 1;
+      continue;
+    }
+
+    // 바꾸지 못한 HTML 표. 태그를 글자로 흘리는 대신 무슨 일이 있었는지 알린다.
+    if (/^\s*<table[\s>]/i.test(line)) {
+      const buf: string[] = [];
+      while (i < lines.length && !/<\/table\s*>/i.test(lines[i] ?? "")) buf.push(lines[i++] ?? "");
+      if (i < lines.length) buf.push(lines[i++] ?? "");
+      out.push(
+        `<div class="rawtable">${icon("i-alert", "icon icon-sm")}` +
+          `<span>표를 Markdown 으로 바꾸지 못했습니다. 원본 HTML 을 그대로 보입니다.</span>` +
+          `<pre><code>${esc(buf.join("\n"))}</code></pre></div>`,
+      );
       continue;
     }
 

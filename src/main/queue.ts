@@ -225,12 +225,30 @@ function pump(): void {
   }
 }
 
+/** 진행 이벤트를 얼마나 자주 내보낼지. 더 자주 보내도 사람이 알아채지 못한다. */
+const PROGRESS_MS = 250;
+
 async function run(entry: Entry): Promise<void> {
   const controller = new AbortController();
   entry.abort = controller;
   entry.view.status = "run";
   entry.view.snippet = "변환하는 중…";
+  entry.view.startedAt = Date.now();
+  delete entry.view.progress;
+  delete entry.view.chars;
   emit();
+
+  // 어댑터가 글자 단위로 부를 수 있어(LLM 스트림) 그대로 흘리면 렌더러가 죽는다.
+  let lastEmit = 0;
+  const onProgress = (current: number, total: number): void => {
+    if (total > 0) entry.view.progress = Math.min(100, Math.round((current / total) * 100));
+    else entry.view.chars = current;
+
+    const now = Date.now();
+    if (now - lastEmit < PROGRESS_MS) return;
+    lastEmit = now;
+    emit();
+  };
 
   let result: ParseResult;
   try {
@@ -238,6 +256,7 @@ async function run(entry: Entry): Promise<void> {
       filePath: entry.view.path,
       options: entry.view.options,
       signal: controller.signal,
+      onProgress,
     });
   } catch (error) {
     result = {
@@ -262,6 +281,8 @@ async function run(entry: Entry): Promise<void> {
   const { markdown, ...rest } = result;
   entry.markdown = markdown;
   entry.view.result = rest;
+  delete entry.view.progress;
+  delete entry.view.chars;
   entry.view.status = result.ok ? "done" : "failed";
   entry.view.snippet = snippetOf(result, markdown);
   emit();

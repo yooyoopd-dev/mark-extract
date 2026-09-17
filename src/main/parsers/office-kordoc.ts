@@ -12,6 +12,7 @@
 import { readFile } from "node:fs/promises";
 import { parseDocx, parseXls, parseXlsx } from "kordoc";
 import type { ParseOptions, ParseResult as KordocResult } from "kordoc";
+import { cleanHtmlInMarkdown } from "../html-in-markdown";
 import { normalizeMarkdown } from "../normalize";
 import type { LogEntry, ParseRequest, ParseResult, RetryAction, Warning } from "../../shared/parse";
 
@@ -86,7 +87,10 @@ export async function parseOffice(request: ParseRequest, format: OfficeFormat): 
       .filter((w) => SURFACED.has(w.code))
       .map((w) => ({ code: w.code, message: w.message, ...(w.page === undefined ? {} : { page: w.page }) }));
 
-    const markdown = normalizeMarkdown(result.markdown);
+    // kordoc 은 병합 셀이나 복합 셀 내용이 있는 표를 <table> 로 낸다.
+    const cleaned = cleanHtmlInMarkdown(result.markdown);
+    warnings.push(...cleaned.warnings);
+    const markdown = normalizeMarkdown(cleaned.markdown);
 
     if (markdown.trim() === "") {
       return {

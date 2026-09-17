@@ -31,6 +31,16 @@ export interface DocView {
   readonly result: Omit<ParseResult, "markdown"> | null;
   /** 목록 카드에 보일 미리보기 */
   readonly snippet: string;
+
+  /**
+   * 변환 진행률 0~100. 총량을 아는 어댑터만 채운다 — LLM 은 얼마나 나올지 알 수
+   * 없으므로 퍼센트를 지어내지 않고 받은 글자 수(chars)만 올린다.
+   */
+  readonly progress?: number;
+  /** 변환을 시작한 시각. 화면이 경과 시간을 센다. */
+  readonly startedAt?: number;
+  /** 지금까지 받은 본문 글자 수. 총량을 모르는 엔진의 진행 표시. */
+  readonly chars?: number;
 }
 
 export interface WatchFolder {

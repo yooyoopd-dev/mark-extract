@@ -38,6 +38,10 @@ function cleanOptions(raw: unknown): DocOptions {
     out["model"] = o["model"].trim().slice(0, 200);
   }
   if (o["inputMode"] === "A" || o["inputMode"] === "B") out["inputMode"] = o["inputMode"];
+  // 1분 ~ 3시간. 사람이 실수로 0 이나 음수를 넣어 즉시 실패하지 않게 막는다.
+  if (typeof o["timeoutMs"] === "number" && Number.isFinite(o["timeoutMs"])) {
+    out["timeoutMs"] = Math.min(Math.max(Math.trunc(o["timeoutMs"]), 60_000), 3 * 60 * 60_000);
+  }
   return options;
 }
 

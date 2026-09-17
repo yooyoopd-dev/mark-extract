@@ -75,6 +75,28 @@ const COMMON = [
   ["따옴표 보존", (md) => /[\u201c"]인용[\u201d"]/.test(md)],
 ];
 
+/**
+ * 병합 표·셀 안 줄바꿈·특수문자 — build.8 Windows 실측에서 보고된 결함을 겨냥한다.
+ *
+ * 두 엔진이 같은 결과를 내야 한다. kordoc 은 병합이 있으면 <table> 로 떨어지고,
+ * opendataloader 는 --markdown-with-html 로 받으므로 역시 <table> 이다. 둘 다
+ * html-in-markdown.ts 가 파이프 표로 바꾼다.
+ */
+const TABLE_CHECKS = [
+  ["HTML 표가 남아 있지 않다", (md) => !/<table[\s>]/i.test(md)],
+  ["HTML 엔티티가 남아 있지 않다", (md) => !/&(amp|lt|gt|quot|#\d+);/.test(md)],
+  ["병합 헤더가 걸친 칸마다 반복된다", (md) => /\|\s*2026년 추진 계획\s*\|\s*2026년 추진 계획\s*\|\s*2026년 추진 계획\s*\|/.test(md)],
+  ["세로 병합 값이 두 행에 모두 있다", (md) => (md.match(/\|\s*1분기\s*\|/g) ?? []).length >= 2],
+  ["셀 안 줄바꿈이 <br> 로 남는다", (md) => md.includes("첫째 줄<br>둘째 줄<br>셋째 줄")],
+  ["셀 안 파이프가 이스케이프된다", (md) => md.includes("파이프 \\| 와")],
+  ["꺾쇠가 원래 글자로 돌아온다", (md) => md.includes("<태그>")],
+  // 표 밖 엔티티는 xmldom 을 거치지 않아 decodeEntities 만이 푼다.
+  ["표 밖 엔티티도 풀린다", (md) => md.includes("부등호 5 < 10")],
+  ["앰퍼샌드가 원래 글자로 돌아온다", (md) => md.includes("앰퍼샌드 & 를")],
+  ["표 밖에는 <br> 이 없다", (md) => !/<br\s*\/?>/i.test(md.split("\n").filter((l) => !l.trimStart().startsWith("|")).join("\n"))],
+  ["병합을 폈다는 경고가 붙는다", (md, result) => result.warnings.some((w) => w.code === "TABLE_MERGE_FLATTENED")],
+];
+
 const CASES = [
   {
     file: "sample-ko.pdf",
@@ -118,10 +140,21 @@ const CASES = [
       ["발표자 노트", (md) => md.includes("### Notes:") && md.includes("발표자 노트다")],
       ["표", (md) => /\|\s*형식\s*\|/.test(md)],
     ],
+  },  {
+    file: "sample-table.docx",
+    engine: "kordoc",
+    title: "병합 표 시험 자료",
+    extra: TABLE_CHECKS,
+  },
+  {
+    file: "sample-table.pdf",
+    engine: "opendataloader",
+    title: "병합 표 시험 자료",
+    extra: TABLE_CHECKS,
   },
 ];
 
-for (const { file, engine, extra } of CASES) {
+for (const { file, engine, extra , title } of CASES) {
   console.log(`\n${file}`);
   const result = await convert({ filePath: fixture(file) });
 
@@ -133,7 +166,10 @@ for (const { file, engine, extra } of CASES) {
 
   const md = result.markdown;
   check(`엔진: ${engine}`, result.meta.engine.includes(engine), result.meta.engine);
-  for (const [name, test] of [...COMMON, ...extra]) check(name, test(md));
+
+  // title 이 있는 자료는 내용이 달라 COMMON 을 적용하지 않는다 (표 시험 자료).
+  const common = title === undefined ? COMMON : [["제목", (m) => m.includes(title)]];
+  for (const [name, test] of [...common, ...extra]) check(name, test(md, result));
 
   writeFileSync(join(outDir, file.replace(/\.[^.]+$/, "") + `.${file.split(".").pop()}.md`), md);
 }

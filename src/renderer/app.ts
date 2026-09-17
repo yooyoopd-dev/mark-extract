@@ -136,6 +136,22 @@ async function syncBody(): Promise<void> {
   render();
 }
 
+/**
+ * 변환 중인 문서가 있으면 1초마다 다시 그린다. 경과 시간이 흐르는 것만으로도
+ * 멈춘 것이 아니라는 신호가 된다 — main 이 진행 이벤트를 보내지 않는 동안에도.
+ */
+let ticking: number | null = null;
+
+function syncTicker(): void {
+  const running = docs.some((d) => d.status === "run");
+  if (running && ticking === null) {
+    ticking = window.setInterval(render, 1000);
+  } else if (!running && ticking !== null) {
+    window.clearInterval(ticking);
+    ticking = null;
+  }
+}
+
 function apply(views: DocView[]): void {
   setDocs(views);
 
@@ -148,6 +164,7 @@ function apply(views: DocView[]): void {
   if (state.selected === null && docs.length > 0) state.selected = docs[0]!.id;
 
   render();
+  syncTicker();
   void syncBody();
 }
 

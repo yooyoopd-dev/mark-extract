@@ -43,6 +43,43 @@ function failPanel(doc: Doc): string {
     </div>`;
 }
 
+/** 인라인 style 이 CSP 에 막혀 있어 폭은 렌더 뒤에 넣는다 (list.ts 와 같다). */
+function applyProgress(host: HTMLElement): void {
+  for (const fill of host.querySelectorAll<HTMLElement>(".bar > i[data-progress]")) {
+    fill.style.width = `${fill.dataset["progress"] ?? 0}%`;
+  }
+}
+
+function elapsedLabel(since: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+  if (seconds < 60) return `${seconds}초`;
+  return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+}
+
+/**
+ * 변환 중에 무슨 일이 벌어지고 있는지 보인다.
+ *
+ * 이것이 없으면 느린 것과 멈춘 것을 구별할 수 없다 — build.8 실측에서 Ollama
+ * 14B 모델이 "변환하는 중입니다"에서 끝나지 않는 것처럼 보인 이유다. LLM 은
+ * 총량을 모르므로 퍼센트를 지어내지 않고 받은 글자 수와 경과 시간을 보인다.
+ */
+function runningDetail(doc: Doc): string {
+  const elapsed = doc.startedAt === undefined ? "" : elapsedLabel(doc.startedAt);
+
+  if (doc.progress !== undefined) {
+    return `
+      <p class="run-detail">${doc.progress}% · ${esc(elapsed)}</p>
+      <span class="bar run-bar"><i data-progress="${doc.progress}"></i></span>`;
+  }
+
+  if (doc.chars !== undefined && doc.chars > 0) {
+    return `<p class="run-detail">${doc.chars.toLocaleString("ko-KR")}자 받음 · ${esc(elapsed)}</p>`;
+  }
+
+  // 아직 한 글자도 오지 않았다. LLM 은 모델을 올리는 동안 아무것도 내놓지 않는다.
+  return `<p class="run-detail">${elapsed === "" ? "시작하는 중…" : `${esc(elapsed)} 경과 · 첫 응답을 기다리는 중`}</p>`;
+}
+
 function logPanel(doc: Doc): string {
   const result = doc.result;
   if (!result) return `<div class="empty"><p class="empty-sub">아직 변환하지 않았습니다.</p></div>`;
@@ -116,8 +153,10 @@ export function renderViewer(
         ${icon(doc.status === "run" ? "i-loader" : "i-clock", "icon")}
         <p class="empty-title">${doc.status === "run" ? "변환하는 중입니다" : "변환 대기 중"}</p>
         <p class="empty-sub">${esc(doc.name)}</p>
+        ${doc.status === "run" ? runningDetail(doc) : ""}
         <button class="btn" id="cancelRun">${icon("i-x", "icon icon-sm")}<span>취소</span></button>
       </div>`;
+    applyProgress(panel);
     return;
   }
 

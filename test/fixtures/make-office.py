@@ -107,6 +107,75 @@ def pptx_file():
     p.save(HERE / "sample-ko.pptx")
 
 
-for make in (docx_file, xlsx_file, xls_file, pptx_file):
+
+
+# ── 복잡한 표 ────────────────────────────────────────────────────────────
+#
+# build.8 Windows 실측에서 드러난 결함을 재현하는 자료다. sample-ko.* 의 표는
+# 3×3 단순 표라 파이프 표로 잘 넘어오고, 그래서 단언 52개가 다 통과하는데도
+# 실제 문서에서는 깨졌다.
+#
+# 여기서 노리는 것:
+#   - 병합 셀 → kordoc 이 tableToMarkdown() 대신 tableToHtml() 로 빠진다
+#   - 셀 안 여러 줄 → 셀 내용이 <br> 로 이어진다
+#   - 셀 안 | < > & → 표 구조를 깨거나 엔티티로 이스케이프된다
+
+TABLE_TITLE = "병합 표 시험 자료"
+
+
+def table_docx_file():
+    from docx import Document
+
+    d = Document()
+    d.add_heading(TABLE_TITLE, level=1)
+    d.add_paragraph("병합 셀과 셀 안 줄바꿈이 마크다운으로 어떻게 넘어오는지 본다.")
+
+    d.add_heading("1. 가로·세로 병합", level=2)
+    # 4행 3열. (0,0)-(0,2) 가로 병합, (1,0)-(2,0) 세로 병합.
+    t = d.add_table(rows=4, cols=3)
+    t.style = "Table Grid"
+
+    head = t.rows[0].cells
+    head[0].merge(head[2]).text = "2026년 추진 계획"
+
+    t.cell(1, 0).merge(t.cell(2, 0)).text = "1분기"
+    t.cell(1, 1).text = "목표일정"
+    t.cell(1, 2).text = "비고"
+    t.cell(2, 1).text = "설계 확정"
+    t.cell(2, 2).text = "완료"
+
+    t.cell(3, 0).text = "2분기"
+    t.cell(3, 1).text = "구현"
+    t.cell(3, 2).text = "진행"
+
+    d.add_heading("2. 셀 안 여러 줄과 특수문자", level=2)
+    t2 = d.add_table(rows=3, cols=2)
+    t2.style = "Table Grid"
+    t2.cell(0, 0).text = "항목"
+    t2.cell(0, 1).text = "내용"
+
+    # 한 셀 안의 여러 문단 → 마크다운에서 <br> 가 된다
+    cell = t2.cell(1, 0)
+    cell.text = "첫째 줄"
+    cell.add_paragraph("둘째 줄")
+    cell.add_paragraph("셋째 줄")
+    # 문구를 고를 때 kordoc 의 자간 복원 휴리스틱을 피한다 — 30자 이하이고 한글
+    # 1글자 토큰이 70% 이상이면 공백을 전부 지운다 (README 참조). "셀 하나에 세 줄"
+    # 은 4토큰 중 3개가 단음절이라 "셀하나에세줄" 이 된다.
+    t2.cell(1, 1).text = "이 셀에는 문단이 세 개 들어 있다"
+
+    # 표 문법과 HTML 을 깨뜨릴 수 있는 글자들
+    t2.cell(2, 0).text = "특수문자"
+    t2.cell(2, 1).text = "파이프 | 와 꺾쇠 <태그> 와 앰퍼샌드 & 를 담았다"
+
+    d.add_paragraph("표 밖 문단이다. 여기에는 줄바꿈 표시가 나오면 안 된다.")
+    # 표 밖 특수문자. 엔진이 이것을 &lt; &gt; &amp; 로 이스케이프하므로 표 변환과는
+    # 별개인 디코드 경로를 지나간다. 표 안에만 두면 xmldom 이 파싱하며 풀어 버려서
+    # 디코드가 빠져도 검증이 통과한다.
+    d.add_paragraph("표 밖 특수문자: 꺾쇠 <태그> · 앰퍼샌드 & · 부등호 5 < 10 이다.")
+    d.save(HERE / "sample-table.docx")
+
+
+for make in (docx_file, xlsx_file, xls_file, pptx_file, table_docx_file):
     make()
     print(f"생성: {make.__name__}")
