@@ -6,11 +6,12 @@
  * 모양이 취소 검증을 통과했으므로 새로 짜지 않고 따른다.
  */
 import { spawn } from "node:child_process";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { normalizeMarkdown } from "../normalize";
 import { diagnose } from "./diagnose";
+import { launchSpec, spawnOptions } from "./launch";
 import { contextLength, looksTooLong } from "./ollama-http";
 import { buildPrompt, CANNOT_READ, type OutputLanguage } from "./prompt";
 import { providerOf } from "./providers";
@@ -62,9 +63,9 @@ function spawnCli(
   const { signal, onChars } = extras;
   const timeoutMs = extras.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
-    const options: Parameters<typeof spawn>[2] = { shell: false };
-    if (cwd !== undefined) options.cwd = cwd;
-    const child = spawn(command, [...args], options);
+    // Windows 의 `.cmd` 셰임은 cmd.exe 를 거쳐야 한다 (launch.ts).
+    const launch = launchSpec(command, args);
+    const child = spawn(launch.file, [...launch.args], spawnOptions(launch, cwd));
 
     const state = newState();
     let body = "";
@@ -133,7 +134,12 @@ function spawnCli(
         reject(
           error.code === "ENOENT"
             ? new Error(`CLI 를 실행하지 못했습니다: ${command}`)
-            : error,
+            : error.code === "EINVAL"
+              ? new Error(
+                  `Windows 가 이 파일을 직접 실행하지 못합니다: ${command}\n` +
+                    "배치 셰임(.cmd·.bat)은 cmd.exe 를 거쳐야 합니다 — 이 경로를 그대로 알려 주세요.",
+                )
+              : error,
         ),
       );
     });
@@ -237,6 +243,9 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
   // 모드 A 는 변환 1건 전용 임시 디렉터리에 대상 파일 하나만 두고 그곳을 작업
   // 디렉터리로 준다. LLM 이 볼 수 있는 것은 그 하나뿐이고 원본 경로도 나가지 않는다.
   let sandbox: string | null = null;
+  // 본문을 파일로도 받는 프로바이더(codex)용. 격리 폴더와 섞지 않는다 — 모드 A 에서
+  // 모델에게 보이는 것은 대상 파일 하나뿐이어야 한다.
+  let bodyDir: string | null = null;
   let stdin: string;
   const fileName = basename(request.filePath);
 
@@ -288,7 +297,17 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
       }
     }
 
-    const args = provider.args({ mode, ...(model === undefined ? {} : { model }) });
+    let bodyFile: string | undefined;
+    if (provider.wantsBodyFile === true) {
+      bodyDir = await mkdtemp(join(tmpdir(), "markextract-out-"));
+      bodyFile = join(bodyDir, "last-message.txt");
+    }
+
+    const args = provider.args({
+      mode,
+      ...(model === undefined ? {} : { model }),
+      ...(bodyFile === undefined ? {} : { bodyFile }),
+    });
     log.push({ label: "인자", value: `${command} ${args.join(" ")}` });
 
     // 아무것도 오지 않는 동안에도 화면이 경과 시간을 셀 수 있게 0 을 한 번 올린다.
@@ -324,7 +343,17 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
       clearInterval(silentTimer);
     }
     const elapsedMs = Date.now() - started;
-    const markdown = normalizeMarkdown(stripOuterFence(outcome.body));
+
+    // 이벤트에서 한 글자도 건지지 못했으면 파일을 본다. CLI 가 이벤트 형식을 바꿔도
+    // 본문을 통째로 잃지 않는다.
+    let raw = outcome.body;
+    if (raw.trim() === "" && bodyFile !== undefined) {
+      raw = await readFile(bodyFile, "utf8").catch(() => "");
+      if (raw.trim() !== "") {
+        log.push({ label: "본문", value: "이벤트에서 읽지 못해 --output-last-message 파일에서 가져왔습니다." });
+      }
+    }
+    const markdown = normalizeMarkdown(stripOuterFence(raw));
 
     // 모드 A 에서 프로바이더가 형식을 못 읽었다. 자동으로 모드 B 로 넘어가지
     // 않는다 (결정 17) — 사용자가 고르게 한다. 조용히 모드를 바꾸면 왜 결과가
@@ -400,6 +429,8 @@ export async function parseWithLlm(request: LlmRequest, localStage: LocalStage):
     };
   } finally {
     // 성공·실패·취소 어느 경로로 끝나든 지운다.
-    if (sandbox !== null) await rm(sandbox, { recursive: true, force: true }).catch(() => {});
+    for (const dir of [sandbox, bodyDir]) {
+      if (dir !== null) await rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }

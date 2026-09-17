@@ -28,6 +28,7 @@ require.cache[require.resolve("electron")] = {
 
 const { parseWithLlm, stripOuterFence } = require(join(root, "out/main/llm/run.js"));
 const { resolveCli, clearCache } = require(join(root, "out/main/llm/resolve.js"));
+const { launchSpec, probeCli } = require(join(root, "out/main/llm/launch.js"));
 const { diagnose, looksUnauthenticated, tailJoin } = require(join(root, "out/main/llm/diagnose.js"));
 const { providerOf } = require(join(root, "out/main/llm/providers/index.js"));
 
@@ -47,12 +48,31 @@ const fixture = (name) => join(root, "test/fixtures", name);
 
 const bin = join(work, "bin");
 mkdirSync(bin, { recursive: true });
+//
+// Windows 는 `.cmd` 배치 셰임으로 만든다. npm 전역 설치가 내놓는 것과 같은 모양이고,
+// build.10 이 `spawn EINVAL` 로 죽은 것이 정확히 이 모양이다. 여기서 같은 모양을
+// 쓰지 않으면 이 검증은 Windows 에서 아무것도 증명하지 못한다.
+const WIN = process.platform === "win32";
 for (const name of ["claude", "gemini", "codex", "ollama"]) {
   const target = join(root, "test/fake-cli", `${name}.mjs`);
-  const shim = join(bin, name);
-  writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${target}" "$@"\n`, "utf8");
-  chmodSync(shim, 0o755);
+  const shim = join(bin, WIN ? `${name}.cmd` : name);
+  writeFileSync(
+    shim,
+    WIN
+      ? `@echo off\r\n"${process.execPath}" "${target}" %*\r\n`
+      : `#!/bin/sh\nexec "${process.execPath}" "${target}" "$@"\n`,
+    "utf8",
+  );
+  if (!WIN) chmodSync(shim, 0o755);
 }
+// --version 에 0 이 아닌 값으로 답하는 CLI. 탐지가 "찾았지만 못 돈다"를 가려내는지 본다.
+writeFileSync(
+  join(bin, WIN ? "badcli.cmd" : "badcli"),
+  WIN ? "@echo off\r\necho 부서짐 1>&2\r\nexit /b 2\r\n" : "#!/bin/sh\necho 부서짐 >&2\nexit 2\n",
+  "utf8",
+);
+if (!WIN) chmodSync(join(bin, "badcli"), 0o755);
+
 const realPath = process.env["PATH"] ?? "";
 const withFakes = `${bin}${delimiter}${realPath}`;
 
@@ -113,6 +133,66 @@ try {
   );
   check("리포트에 플랫폼이 담긴다", missing.report.some((l) => l.includes(process.platform)));
 
+  /* ── 1-2. Windows 셰임 실행 (launch.ts) ───────────── */
+  //
+  // 리눅스에서는 cmd.exe 경로를 밟을 수 없다. 순수 함수로 명령줄이 어떻게 만들어지는지
+  // 단언하고, 실제 실행은 Windows CI job 이 증명한다.
+  console.log("\nWindows 셰임 실행");
+
+  const shimLaunch = launchSpec("C:\\Users\\u\\AppData\\Roaming\\npm\\gemini.cmd", ["-m", "a&b c"], "win32");
+  check("`.cmd` 는 cmd.exe 로 돌린다", /cmd\.exe$/i.test(shimLaunch.file), shimLaunch.file);
+  check("cmd.exe 인자는 /d /s /c 로 시작한다", shimLaunch.args.slice(0, 3).join(" ") === "/d /s /c", shimLaunch.args.join(" "));
+  check("Node 가 다시 인용하지 않게 verbatim 이다", shimLaunch.verbatim === true);
+  check(
+    "명령줄이 통째로 따옴표에 싸인다 (/s 가 한 겹 벗긴다)",
+    shimLaunch.args[3].startsWith('"') && shimLaunch.args[3].endsWith('"'),
+    shimLaunch.args[3],
+  );
+  check(
+    "cmd 메타문자가 ^ 로 막힌다",
+    shimLaunch.args[3].includes("^&") && !/[^^]&/.test(shimLaunch.args[3]),
+    shimLaunch.args[3],
+  );
+  check("공백 있는 인자가 한 덩어리로 인용된다", shimLaunch.args[3].includes('^"a^&b c^"'), shimLaunch.args[3]);
+
+  const exeLaunch = launchSpec("C:\\bin\\claude.exe", ["-p"], "win32");
+  check("`.exe` 는 그대로 실행한다", exeLaunch.file.endsWith("claude.exe") && exeLaunch.verbatim === false, exeLaunch.file);
+  check("`.exe` 인자는 손대지 않는다", exeLaunch.args.join(" ") === "-p", exeLaunch.args.join(" "));
+
+  const posix = launchSpec("/usr/bin/gemini.cmd", ["-p"], "linux");
+  check("Windows 가 아니면 확장자를 보지 않는다", posix.file === "/usr/bin/gemini.cmd" && posix.verbatim === false);
+
+  const quoted = launchSpec("C:\\x\\a.cmd", ['he said "hi"', "trail\\"], "win32");
+  check("따옴표는 역슬래시로 이스케이프된다", quoted.args[3].includes('\\^"hi\\^"'), quoted.args[3]);
+  check("끝의 역슬래시는 두 배가 된다", quoted.args[3].includes("trail\\\\^\""), quoted.args[3]);
+
+  // 찾은 것과 도는 것은 다른 사실이다. build.10 은 `gemini.cmd` 를 찾아 놓고
+  // 실행하지 못했고, 파일 존재만 보던 탐지가 그것을 통과시켰다.
+  const probeGood = await probeCli(join(bin, WIN ? "claude.cmd" : "claude"));
+  check("도는 CLI 는 probe 가 통과시킨다", probeGood.ok, JSON.stringify(probeGood));
+  const probeBad = await probeCli(join(bin, WIN ? "badcli.cmd" : "badcli"));
+  check("--version 이 실패하면 probe 가 잡는다", !probeBad.ok, JSON.stringify(probeBad));
+  check("실패 사유가 화면에 띄울 만큼 남는다", probeBad.detail.includes("2"), probeBad.detail);
+  const probeMissing = await probeCli(join(work, "없는파일"));
+  check("없는 파일은 probe 가 잡는다", !probeMissing.ok, JSON.stringify(probeMissing));
+
+  if (WIN) {
+    // Windows 에서만 의미가 있다. 셰임과 네이티브가 같이 있으면 네이티브가 낫다.
+    const dual = join(work, "dual");
+    mkdirSync(dual, { recursive: true });
+    writeFileSync(join(dual, "dupe.exe"), "", "utf8");
+    writeFileSync(join(dual, "dupe.cmd"), "", "utf8");
+    process.env["PATH"] = dual;
+    clearCache();
+    const picked = await resolveCli("dupe");
+    check(".exe 와 .cmd 가 같이 있으면 .exe 를 고른다", picked.command?.endsWith(".exe") === true, picked.command);
+
+    process.env["PATH"] = withFakes;
+    clearCache();
+    const shim = await resolveCli("gemini");
+    check("셰임을 골랐다는 사실이 리포트에 남는다", shim.report.some((l) => l.includes("배치 셰임")), shim.report.join(" / "));
+  }
+
   /* ── 2. claude 스트림 중복 제거 ──────────────────── */
   console.log("\nclaude 스트림 파싱");
 
@@ -158,6 +238,23 @@ try {
   check("codex 변환 성공", cdx.ok, cdx.error?.message);
   check("codex 증분 뒤 완성본이 중복되지 않는다", body(cdx) === EXPECT, JSON.stringify(cdx.markdown));
 
+  // 가짜 gemini 는 우리가 보낸 stdin 을 role=user 이벤트로 되돌려 준다. 그것을
+  // 본문으로 세면 문서 앞에 프롬프트가 통째로 붙는다.
+  check(
+    "gemini 가 되울린 프롬프트가 본문에 섞이지 않는다",
+    !gem.markdown.includes("--- 입력 끝 ---") && !gem.markdown.includes("로컬 단계 결과"),
+    JSON.stringify(gem.markdown).slice(0, 160),
+  );
+
+  // 이벤트 형식이 판올림으로 바뀐 상황. 본문은 --output-last-message 파일에만 있다.
+  const fileOnly = await run("codex", { fake: "file-only" });
+  check("codex 이벤트가 비어도 파일에서 본문을 건진다", fileOnly.ok && body(fileOnly) === EXPECT, JSON.stringify(fileOnly.markdown));
+  check(
+    "파일에서 읽었다는 사실이 로그에 남는다",
+    fileOnly.log.some((e) => e.value.includes("--output-last-message")),
+    JSON.stringify(fileOnly.log.map((e) => e.label)),
+  );
+
   const oll = await run("ollama", { model: "시험모델" });
   check("ollama 변환 성공", oll.ok && body(oll) === EXPECT, JSON.stringify(oll.markdown));
 
@@ -188,6 +285,17 @@ try {
   const args = /ARGS=(.*)/.exec(probe.markdown)?.[1] ?? "";
   check("원본 경로가 인자에 없다", !args.includes("test/fixtures"), args);
   check("원본 폴더 이름도 인자에 없다", !args.includes(dirname(fixture("sample-ko.docx"))), args);
+
+  // 인자 왕복. Windows 에서는 셰임이 `.cmd` 라 cmd.exe 를 거치므로, 이 단언이
+  // 인용 규칙이 실제로 맞는지를 증명한다. 리눅스에서는 그냥 지나간다.
+  const TRICKY = 'a&b c"d^e|f';
+  const tricky = await run("claude", { fake: "probe", mode: "A", model: TRICKY });
+  const argv = JSON.parse(/ARGV=(.*)/.exec(tricky.markdown)?.[1] ?? "[]");
+  check(
+    `특수문자 인자가 글자 그대로 도착한다 (${process.platform})`,
+    argv.includes(TRICKY),
+    JSON.stringify(argv),
+  );
 
   await sleep(200);
   const after = readdirSync(tmpdir()).filter((n) => n.startsWith("markextract-llm-")).length;
@@ -350,6 +458,23 @@ try {
   check("codex 는 읽기 전용 샌드박스다", providerOf("codex").args({ mode: "A" }).join(" ").includes("--sandbox read-only"));
   check("gemini 는 plan 승인 모드다", providerOf("gemini").args({ mode: "A" }).join(" ").includes("--approval-mode plan"));
   check("ollama 는 모드 A 를 지원하지 않는다고 선언한다", providerOf("ollama").supportsModeA === false);
+
+  // 아래 넷은 실제 CLI 를 돌려 확인한 사실이다 (gemini 0.60.0 · codex 0.154.0).
+  const gemArgs = providerOf("gemini").args({ mode: "B" }).join(" ");
+  check("gemini 는 stream-json 을 쓴다", gemArgs.includes("-o stream-json"), gemArgs);
+  check(
+    "gemini 에 -o json 을 쓰지 않는다 (여러 줄 JSON 이라 줄 단위로 못 읽는다)",
+    !/-o json\b/.test(gemArgs),
+    gemArgs,
+  );
+
+  const cdxArgs = providerOf("codex").args({ mode: "B", bodyFile: "/tmp/x" }).join(" ");
+  check(
+    "codex 는 --skip-git-repo-check 를 붙인다 (없으면 시작조차 못 한다)",
+    cdxArgs.includes("--skip-git-repo-check"),
+    cdxArgs,
+  );
+  check("codex 는 본문을 파일로도 받는다", cdxArgs.includes("--output-last-message /tmp/x"), cdxArgs);
 } finally {
   process.env["PATH"] = realPath;
   delete process.env["MARKEXTRACT_FAKE"];

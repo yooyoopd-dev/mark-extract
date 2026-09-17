@@ -8,6 +8,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
+import { probeCli } from "./llm/launch";
 import { clearCache, resolveCli } from "./llm/resolve";
 import { providerOf } from "./llm/providers";
 import { listModels } from "./llm/ollama-http";
@@ -121,7 +122,20 @@ export function registerIpc(): void {
     return Promise.all(
       PROVIDERS.map(async (provider) => {
         const { command, report } = await resolveCli(provider);
-        return { provider, label: providerOf(provider).label, found: command !== null, command, report };
+        if (command === null) {
+          return { provider, label: providerOf(provider).label, found: false, command, report, runnable: false, detail: "" };
+        }
+        // 찾았다고 도는 것은 아니다. 한 번 띄워 봐야 안다.
+        const probe = await probeCli(command);
+        return {
+          provider,
+          label: providerOf(provider).label,
+          found: true,
+          command,
+          report: [...report, probe.ok ? `실행 확인: ${probe.detail}` : `실행하지 못했습니다: ${probe.detail}`],
+          runnable: probe.ok,
+          detail: probe.detail,
+        };
       }),
     );
   });

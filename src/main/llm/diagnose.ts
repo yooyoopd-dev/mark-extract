@@ -18,6 +18,8 @@ const AUTH_PATTERNS = [
   /not logged in/i,
   /please (run )?login/i,
   /invalid api key/i,
+  // gemini 0.60.0 실측 — "Please set an Auth method in your .../settings.json"
+  /set an auth method/i,
 ];
 
 export function looksUnauthenticated(text: string): boolean {

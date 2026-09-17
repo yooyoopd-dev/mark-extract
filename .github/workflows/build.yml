@@ -88,6 +88,12 @@ jobs:
       - name: 파서 검증 (Windows)
         run: npm run verify:parsers
 
+      # 리눅스 CI 는 cmd.exe 경로를 밟을 수 없다. npm 전역 설치가 내놓는 것과 같은
+      # `.cmd` 셰임을 만들어 돌리므로, Windows 가 배치 파일을 직접 spawn 하지 못하는
+      # 문제(build.10 의 spawn EINVAL)가 여기서만 잡힌다.
+      - name: LLM 검증 (Windows — `.cmd` 셰임 실행 경로)
+        run: npm run verify:llm
+
       - name: portable exe 빌드
         run: npm run dist:win
 

@@ -20,7 +20,9 @@ export function probeBody(args) {
   } catch {
     entries = ["<읽기 실패>"];
   }
-  return `CWD=${process.cwd()}\nENTRIES=${entries.join(",")}\nARGS=${args.join(" ")}\n`;
+  // ARGS 는 공백으로 이어 붙여 경계가 사라진다. 인자가 글자 그대로 도착했는지
+  // 보려면 경계가 남아 있어야 한다 (Windows 의 cmd.exe 인용 검증).
+  return `CWD=${process.cwd()}\nENTRIES=${entries.join(",")}\nARGS=${args.join(" ")}\nARGV=${JSON.stringify(args)}\n`;
 }
 
 /** 본문 말고 다른 동작을 해야 하는 경우를 처리한다. 처리했으면 true. */

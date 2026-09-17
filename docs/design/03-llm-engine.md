@@ -14,11 +14,52 @@ LLM은 **HTTP API가 아니라 CLI 서브프로세스**로 구동한다 (결정 
 resolveCli(name: string, windowsCandidates: string[]): Promise<string>
 ```
 
-Windows에서는 `claude.cmd` → `claude.exe` → `claude` 순으로 시도한다. npm 전역 설치는 `.cmd` 셰임을 깔기 때문에 확장자 없는 이름만 찾으면 놓친다.
+Windows에서는 `claude.exe` → `claude.cmd` → `claude.bat` → `claude` 순으로 시도한다. npm 전역 설치는 `.cmd` 셰임을 깔기 때문에 확장자 없는 이름만 찾으면 놓치고, 네이티브 실행 파일이 같이 있으면 그쪽이 한 겹 덜 거친다.
 
 결과는 캐시하되, **캐시된 경로가 더 이상 존재하지 않으면 무효화**하고 다시 찾는다. 사용자가 CLI를 재설치하거나 버전 관리자가 경로를 옮기는 일이 있다.
 
 찾지 못하면 "설치되지 않음"이 아니라 **무엇을 어떻게 확인했는지**까지 담은 진단 리포트를 만든다. 사내망 PC는 로그 파일을 반출할 수 없어 화면에서 읽고 옮겨 적을 수 있어야 한다.
+
+### 찾은 것과 도는 것은 다른 사실이다 (build.10 실측)
+
+`resolveCli`는 파일이 **있는지**만 본다(`access(F_OK)`). build.10에서 설정 화면은 "찾음: …\gemini.cmd"라고 말해 놓고 변환은 `spawn EINVAL`로 죽었다 — 탐지가 실행을 해 보지 않았기 때문이다.
+
+그래서 탐지는 `probeCli()`로 **실제로 한 번 띄운다.** `--version`을 5초 제한으로 돌리고(네 프로바이더 모두 지원함을 실측), stdin은 곧바로 닫아 입력을 기다리며 매달리지 않게 한다. 결과는 세 갈래로 화면에 나온다.
+
+| 상태 | 화면 | 조치 |
+|---|---|---|
+| 찾았고 돌았다 | `실행 확인: 0.60.0` | 없음 |
+| **찾았지만 못 돌았다** | `찾았지만 실행하지 못했습니다: …` | 이번 결함이 앉는 자리 |
+| 못 찾았다 | 진단 리포트 전문 | 설치·PATH 확인 |
+
+---
+
+## Windows 셰임 — `.cmd`를 직접 spawn하지 못한다
+
+`src/main/llm/launch.ts`. **build.10 Windows 실측: Gemini CLI가 `spawn EINVAL`로 즉시 실패했다.**
+
+Node 18.20.2 / 20.12.2 이후(CVE-2024-27980) **Windows에서 `.cmd`·`.bat`를 `shell` 없이 spawn하면 `EINVAL`을 던진다.** Electron 44는 Node 22다. npm 레지스트리에서 확인한 각 CLI의 실체:
+
+| 패키지 | `bin` | Windows PATH에 놓이는 것 |
+|---|---|---|
+| `@google/gemini-cli` 0.60.0 | `bundle/gemini.js` | `gemini.cmd` 뿐 |
+| `@openai/codex` 0.154.0 | `bin/codex.js` | `codex.cmd` 뿐 |
+| `@anthropic-ai/claude-code` 2.1.274 | `bin/claude.exe` | 네이티브 설치면 `claude.exe` |
+| ollama | 공식 설치 프로그램 | `ollama.exe` |
+
+claude만 통과한 것은 사용자가 네이티브 설치본을 썼기 때문으로 **추정한다** — npm으로 깔았다면 `claude.cmd`가 먼저 잡혀 똑같이 실패했을 것이다.
+
+이 문서 초안에는 "gemini는 Windows에서 직접 실행이 실패하면 `cmd /C <경로>`로 재시도한다"가 이미 적혀 있었다. **6a단계 구현이 그것을 빠뜨렸다.** 이제 재시도가 아니라 **처음부터** 셰임이면 cmd.exe로 부른다 — 실패해 봐야 아는 것보다 낫다.
+
+```
+cmd.exe /d /s /c "<인용된 명령줄>"   +  windowsVerbatimArguments: true
+```
+
+`shell: true`는 **쓰지 않는다.** 그건 Node가 만든 명령줄에 인자를 그대로 이어 붙여, 모델 이름이나 한글 경로에 `&` 하나만 있어도 명령이 갈라진다. 명령줄을 직접 만들고 두 겹으로 인용한다 — 안쪽은 `CommandLineToArgvW` 규칙, 바깥쪽은 cmd.exe 파서용 `^`. 규칙은 cross-spawn을 따랐다([ATTRIBUTION](ATTRIBUTION.md)).
+
+**한계: `%`는 막지 못한다.** cmd는 `^%`도 확장하므로, 모델 이름이나 경로에 `%VAR%`가 있으면 확장된다. cross-spawn도 같은 한계를 가진다.
+
+`windowsHide: true`도 같이 켠다. Node 기본값은 `false`라서, GUI 앱이 cmd.exe를 부르면 변환하는 30분 내내 콘솔 창이 떠 있게 된다.
 
 ---
 
@@ -27,11 +68,35 @@ Windows에서는 `claude.cmd` → `claude.exe` → `claude` 순으로 시도한�
 | 프로바이더 | 인자 | 출력 형식 |
 |---|---|---|
 | `claude` | `-p --output-format stream-json --verbose --model <m>` | 줄 단위 JSON 이벤트 |
-| `gemini` | `--skip-trust --approval-mode plan -o json -m <m>` | JSON |
-| `codex` | `-a never exec --json --sandbox read-only --ephemeral --model <m> -` | 줄 단위 JSON |
+| `gemini` | `--skip-trust --approval-mode plan -o stream-json -m <m>` | 줄 단위 JSON (JSONL) |
+| `codex` | `-a never exec --json --sandbox read-only --ephemeral --skip-git-repo-check --model <m> --output-last-message <파일> -` | 줄 단위 JSON |
 | `ollama` | `run <model>` (프롬프트는 stdin) | 평문 스트림 |
 
-`gemini`는 Windows에서 직접 실행이 실패하면 `cmd /C <경로>`로 재시도한다.
+### gemini·codex 실측 (0.60.0 · 0.154.0)
+
+6a단계에서 이 두 줄은 **문서만 보고 적은 것이었다.** 실제 CLI를 깔아 확인했다.
+
+**gemini — `-o json`을 쓰면 본문을 한 글자도 못 꺼낸다.** 그 형식은 여러 줄로 예쁘게 찍힌 JSON 하나라, 줄 단위로 파싱하는 실행기가 어느 줄도 파싱하지 못한다. `-o stream-json`은 한 줄에 이벤트 하나다. 본문은 이렇게 온다(CLI 번들의 방출 지점 그대로):
+
+```json
+{"type":"message","role":"assistant","content":"…","delta":true}
+```
+
+`delta: true`가 붙은 **증분**이다. 그리고 우리가 보낸 stdin이 `role:"user"` 이벤트로 **되돌아온다** — 그것을 본문으로 세면 문서 앞에 프롬프트가 통째로 붙는다. role로 거른다.
+
+`-p`는 필요 없다. stdin이 파이프면 CLI가 알아서 헤드리스로 돌고, 받은 stdin을 사용자 메시지로 그대로 싣는다(위 이벤트로 확인).
+
+**codex — `--skip-git-repo-check`가 없으면 시작조차 하지 않는다.**
+
+```
+Not inside a trusted directory and --skip-git-repo-check was not specified.
+```
+
+모드 A의 임시 폴더도, 사용자 PC의 문서 폴더도 git 저장소가 아니다. 이 플래그가 빠져 있어 codex는 **어느 경로로도 돌 수 없었다.**
+
+인증 없이 확인한 것은 여기까지다. `thread.started`·`turn.started`는 실제로 받아 보았지만, 본문이 실리는 `item.completed`까지는 **확인하지 못했다.** 그래서 `--output-last-message <파일>`을 같이 건다 — 이벤트에서 한 글자도 못 건지면 실행기가 그 파일을 읽는다. 이벤트 형식이 판올림으로 바뀌어도 본문을 통째로 잃지 않는다.
+
+> **여전히 미검증**: 두 CLI의 성공 응답 본문. 인증 없이는 모델을 부를 수 없어 `consume()`이 실제 본문을 제대로 잘라 내는지는 확인하지 못했다. 가짜 CLI로 형식만 맞춰 두었다.
 
 > **실측 (CLI 2.1.273)**: `--input-format stream-json`은 **쓰지 않는다.** 켜면 stdin도 stream-json이어야 해서 평문 프롬프트가 `Error parsing streaming input line (type=unknown): SyntaxError`로 거절된다. `-p`는 평문 stdin을 그대로 프롬프트로 받는다. 설계 초안에 이 플래그가 들어 있었던 것은 llm-co-wiki가 stream-json 입력을 쓰기 때문이고, 우리는 한 번의 프롬프트만 보내므로 필요가 없다.
 

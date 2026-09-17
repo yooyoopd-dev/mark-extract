@@ -101,6 +101,15 @@ export interface CliStatus {
   readonly label: string;
   readonly found: boolean;
   readonly command: string | null;
+  /**
+   * 찾은 것을 실제로 띄워 보았더니 돌았는가.
+   *
+   * 찾은 것과 도는 것은 다른 사실이다. build.10 은 `gemini.cmd` 를 찾아 놓고
+   * 실행하지 못했다 — 파일 존재만 보던 탐지가 그것을 통과시켰다.
+   */
+  readonly runnable: boolean;
+  /** --version 이 내놓은 첫 줄, 또는 실행하지 못한 사유. */
+  readonly detail: string;
   /** 어디를 어떻게 찾았는지. 실패했을 때 그대로 띄운다. */
   readonly report: readonly string[];
 }

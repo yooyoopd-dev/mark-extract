@@ -109,14 +109,28 @@ function convertPane(s: Settings): string {
 
 /* ── LLM ────────────────────────────────────────────────── */
 
+/**
+ * 세 가지를 구분한다 — 돌았다 / 찾았지만 못 돌았다 / 못 찾았다.
+ *
+ * 가운데가 이번 결함(`gemini.cmd` 를 찾아 놓고 spawn EINVAL)이 앉는 자리다.
+ * 찾은 것과 도는 것을 한 칸으로 합치면 그 상태가 화면에서 사라진다.
+ */
 function cliRow(status: CliStatus): string {
+  const ok = status.found && status.runnable;
+  const cls = ok ? "ok" : status.found ? "warn" : "miss";
   return `
-    <div class="cli-row ${status.found ? "ok" : "miss"}">
+    <div class="cli-row ${cls}">
       <span class="cli-head">
-        ${icon(status.found ? "i-check" : "i-alert", "icon icon-sm")}
+        ${icon(ok ? "i-check" : "i-alert", "icon icon-sm")}
         <b>${esc(status.label)}</b>
         <span class="cli-path od-truncate">${esc(status.command ?? "찾지 못함")}</span>
       </span>
+      ${ok ? `<span class="cli-detail">실행 확인: ${esc(status.detail)}</span>` : ""}
+      ${
+        status.found && !status.runnable
+          ? `<span class="cli-detail">찾았지만 실행하지 못했습니다 — ${esc(status.detail)}</span>`
+          : ""
+      }
       ${
         status.found
           ? ""

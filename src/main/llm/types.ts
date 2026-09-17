@@ -5,6 +5,8 @@ export interface SpawnOptions {
   /** 빈 값이면 인자에서 --model 을 뺀다. CLI 기본값을 쓴다는 뜻이다. */
   readonly model?: string;
   readonly mode: InputMode;
+  /** 본문을 파일로도 받는 프로바이더에게 주는 경로. wantsBodyFile 이 true 일 때만 온다. */
+  readonly bodyFile?: string;
 }
 
 /**
@@ -35,6 +37,13 @@ export interface Provider {
   readonly consume: (line: string, state: ParseState) => string | null;
   /** 모드 A(파일 직접 읽기)를 할 수 있는가. ollama 는 파일 읽기 도구가 없다. */
   readonly supportsModeA: boolean;
+  /**
+   * 본문을 파일로도 받는가.
+   *
+   * codex 는 마지막 메시지를 파일로 써 준다. 이벤트 형식이 판올림으로 바뀌어도
+   * 본문을 통째로 잃지 않게 하는 안전망이다.
+   */
+  readonly wantsBodyFile?: boolean;
 }
 
 export function newState(): ParseState {

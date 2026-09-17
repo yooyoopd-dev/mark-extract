@@ -21,9 +21,15 @@ export interface Resolved {
   readonly report: readonly string[];
 }
 
-/** 확장자 후보. Windows 는 셰임이 먼저다. */
+/**
+ * 확장자 후보. Windows 는 네이티브 실행 파일이 먼저다.
+ *
+ * `.cmd` 셰임은 cmd.exe 를 한 겹 거쳐야 하므로(launch.ts), 같은 프로그램이 `.exe`
+ * 로도 놓여 있으면 그쪽이 낫다. 셰임이 유일한 CLI 도 있어(gemini·codex) 후보에서
+ * 빼지는 않는다.
+ */
 function candidates(name: string): string[] {
-  return process.platform === "win32" ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name];
+  return process.platform === "win32" ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name] : [name];
 }
 
 const cache = new Map<string, string>();
@@ -47,7 +53,8 @@ async function search(name: string, report: string[]): Promise<string | null> {
     for (const candidate of candidates(name)) {
       const full = join(dir, candidate);
       if (await executable(full)) {
-        report.push(`찾음: ${full}`);
+        // 사내망 PC 는 화면에 뜨는 것이 전부다. 셰임이면 왜 한 겹 더 거치는지 남긴다.
+        report.push(`찾음: ${full}${/\.(cmd|bat)$/i.test(full) ? " (배치 셰임 — cmd.exe 로 실행합니다)" : ""}`);
         return full;
       }
     }

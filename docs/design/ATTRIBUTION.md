@@ -97,6 +97,12 @@ llm-co-wiki의 macOS 로그인 셸 PATH 탐색(`cli_resolver.rs`)은 **기능 �
 
 **다만 동봉하는 구성요소의 고지 의무는 그대로다.** opendataloader(Apache-2.0)의 LICENSE·NOTICE, kordoc·markitdown(MIT)의 저작권 고지는 배포물에 포함해야 한다. 자체 라이선스를 부여하지 않는 것과 타인 저작물의 고지 의무는 별개다.
 
+## cross-spawn (MIT) — 인용 규칙만
+
+`src/main/llm/launch.ts`의 `quote()`는 [cross-spawn](https://github.com/moxystudio/node-cross-spawn)의 이스케이프 규칙을 따른다 — 따옴표 앞 역슬래시를 두 배로 늘리고, 전체를 따옴표로 감싼 뒤, cmd.exe 메타문자(`< > " ^ | & ? *`)에 `^`를 씌우는 두 겹 구조.
+
+**의존성으로 들이지 않고 20줄을 직접 썼다.** 패키징(asar 제외 목록)을 건드리지 않고, 플랫폼을 인자로 받는 순수 함수라 리눅스 CI에서도 단언할 수 있기 때문이다. 규칙 자체는 Windows `CommandLineToArgvW`와 cmd.exe 파서가 정하는 것이라 구현이 수렴한다.
+
 ## 디자인 export
 
 사용자가 제공한 `index.html`은 원본 그대로 [`design/`](../../design/)에 보관한다. 구현은 이 파일을 시각적 계약으로 삼는다.
