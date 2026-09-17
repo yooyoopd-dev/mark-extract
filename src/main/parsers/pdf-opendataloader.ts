@@ -21,6 +21,11 @@ import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from ".
 
 const ENGINE = "로컬 · opendataloader";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * OCR 은 훨씬 오래 걸린다. 스캔 수십 장을 이미지에서 인식하면 10분은 정상 동작을
+ * 실패로 만든다 — build.8 에서 LLM 경로가 같은 이유로 물렸다.
+ */
+const OCR_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** 이 CLI 에는 --version 이 없다. 이걸로 확인하면 정상 설치를 고장으로 오판한다. */
 const PROBE_FLAG = "--export-options";
@@ -138,7 +143,12 @@ export async function probe(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
-function buildArgs(filePath: string, outputDir: string, options: DocOptions = {}): string[] {
+function buildArgs(
+  filePath: string,
+  outputDir: string,
+  options: DocOptions = {},
+  hybridUrl = "",
+): string[] {
   const args = [
     filePath,
     "--format", "markdown",
@@ -149,7 +159,11 @@ function buildArgs(filePath: string, outputDir: string, options: DocOptions = {}
     // 행이 쪼개진다. HTML 로 받으면 구조가 남고, html-in-markdown.ts 가 kordoc
     // 출력과 같은 방식으로 파이프 표로 바꾼다.
     "--markdown-with-html",
-    "--quiet",
+    // --quiet 는 쓰지 않는다. 그것이 java.util.logging 을 통째로 끄는 바람에
+    // WARNING 도 SEVERE 도 사라졌다 (실측). 서버가 꺼져 있을 때 CLI 가 내주는
+    // 친절한 안내까지 삼켜서 실패가 "엔진이 1 로 끝났습니다"만 남았고,
+    // collectWarnings() 는 처음부터 한 줄도 받지 못하는 죽은 코드였다.
+    // INFO 는 우리가 걸러 낸다 (javaLog).
     "--output-dir", outputDir,
   ];
 
@@ -162,18 +176,71 @@ function buildArgs(filePath: string, outputDir: string, options: DocOptions = {}
   if (options.pages) args.push("--pages", options.pages);
   if (options.password) args.push("--password", options.password);
 
+  // 태그드 PDF 에서는 이것이 hybrid 보다 우선한다. 둘 다 켜면 CLI 가 구조 트리를
+  // 쓰고 서버를 부르지 않는다 — 인스펙터가 그 사실을 미리 알린다.
+  if (options.useStructTree) args.push("--use-struct-tree");
+
+  // 서버 주소가 없으면 OCR 인자를 붙이지 않는다. 붙이면 CLI 가 기본 주소로 붙다가
+  // 실패하고, 사용자는 OCR 을 켰는데 왜 안 되는지 모른다.
+  if (options.ocr && hybridUrl !== "") {
+    args.push("--hybrid", "docling-fast", "--hybrid-url", hybridUrl);
+    if (options.hybridFullPages) args.push("--hybrid-mode", "full");
+    // --hybrid-fallback 은 어떤 경우에도 붙이지 않는다 (결정 6). 서버 오류를 조용히
+    // Java 경로로 되돌리면 사용자가 OCR 이 안 걸린 것을 모른 채 결과를 받는다.
+  }
+
   return args;
 }
 
-/** stderr 의 WARNING 줄을 사용자에게 보일 경고로 옮긴다. */
-function collectWarnings(stderr: string): Warning[] {
+/** 검증 전용. 인자 조립만 따로 보기 위해 내보낸다 (scripts/verify-ocr.mjs). */
+export const buildArgsForVerify = buildArgs;
+
+/**
+ * java.util.logging 이 stderr 에 내는 것을 레벨별로 모은다.
+ *
+ * 한 건이 두 줄 이상이다 — 첫 줄은 타임스탬프와 클래스명, 다음 줄이 `LEVEL: 본문`
+ * 이고, 본문이 여러 줄로 이어지기도 한다. 서버가 꺼졌을 때 CLI 가 내주는 설치·구동
+ * 안내가 그 경우다(실측 6줄). 이어지는 줄을 버리면 안내가 반쪽이 된다.
+ *
+ * INFO 는 버린다. 페이지 수·제목 같은 것이라 사용자 화면에 둘 이유가 없고 양이 많다.
+ */
+function javaLog(stderr: string): { warnings: Warning[]; severe: string[] } {
   const warnings: Warning[] = [];
+  const severe: string[] = [];
+  // "Sep 17, 2026 2:28:11 PM org.opendataloader…" — 새 기록의 시작.
+  const HEADER = /^[A-Z][a-z]{2} \d{1,2}, \d{4} /;
+
+  let level: "WARNING" | "SEVERE" | null = null;
+  let body: string[] = [];
+
+  const flush = (): void => {
+    const text = body.join("\n").trim();
+    if (level !== null && text !== "") {
+      if (level === "SEVERE") severe.push(text);
+      else warnings.push({ code: "ENGINE_WARNING", message: text });
+    }
+    level = null;
+    body = [];
+  };
+
   for (const line of stderr.split("\n")) {
-    const match = /WARNING:\s*(.+)$/.exec(line);
-    if (match?.[1]) warnings.push({ code: "ENGINE_WARNING", message: match[1].trim() });
+    const start = /^(WARNING|SEVERE):\s*(.*)$/.exec(line);
+    if (start) {
+      flush();
+      level = start[1] as "WARNING" | "SEVERE";
+      body = [start[2] ?? ""];
+    } else if (HEADER.test(line) || /^(INFO|FINE|CONFIG):/.test(line)) {
+      flush();
+    } else if (level !== null) {
+      body.push(line);
+    }
   }
-  return warnings;
+  flush();
+  return { warnings, severe };
 }
+
+/** 서버가 꺼져 있을 때 CLI 가 내는 문구 (실측). 사유를 특정하는 데 쓴다. */
+const HYBRID_DOWN = /Hybrid server is not available/i;
 
 export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
   const started = Date.now();
@@ -188,23 +255,38 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
   ];
 
   try {
-    const args = buildArgs(request.filePath, dir, request.options);
+    const ocr = request.options?.ocr === true && (request.hybridUrl ?? "") !== "";
+    const args = buildArgs(request.filePath, dir, request.options, request.hybridUrl ?? "");
+    if (ocr) {
+      log.push({ label: "OCR", value: `hybrid 서버 ${request.hybridUrl} · 제한 시간 30분` });
+    }
     // 암호는 로그에 남기지 않는다.
     log.push({ label: "인자", value: args.map((a) => (a === request.options?.password ? "***" : a)).join(" ") });
 
-    const { code, stderr } = await runJava(args, request.signal);
+    const { code, stderr } = await runJava(
+      args,
+      request.signal,
+      request.options?.timeoutMs ?? (ocr ? OCR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS),
+    );
     const elapsedMs = Date.now() - started;
+    const logged = javaLog(stderr);
 
     if (code !== 0) {
+      // SEVERE 가 사유를 말해 준다. 서버가 꺼졌을 때 CLI 가 내는 안내에는 설치·구동
+      // 명령까지 들어 있어 그대로 보여 주는 편이 우리가 다시 쓰는 것보다 정확하다.
+      const reason = logged.severe.join("\n\n");
+      const down = HYBRID_DOWN.test(reason);
       return {
         ok: false,
         markdown: "",
-        warnings: [],
-        log: [...log, { label: "stderr", value: stderr.trim() || "(없음)" }],
+        warnings: logged.warnings,
+        log: [...log, { label: "엔진 오류", value: reason || "(stderr 에 아무것도 없습니다)" }],
         meta: { engine: ENGINE, elapsedMs },
         error: {
-          code: "ENGINE_FAILED",
-          message: `변환 엔진이 ${code} 로 끝났습니다.`,
+          code: down ? "HYBRID_UNAVAILABLE" : "ENGINE_FAILED",
+          message: down
+            ? `hybrid OCR 서버에 연결하지 못했습니다.\n\n${reason}`
+            : reason || `변환 엔진이 ${code} 로 끝났습니다.`,
           actions: ["retry-plain"],
         },
       };
@@ -217,7 +299,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
         ok: false,
         markdown: "",
         warnings: [],
-        log: [...log, { label: "stderr", value: stderr.trim() || "(없음)" }],
+        log: [...log, { label: "엔진 오류", value: logged.severe.join("\n\n") || "(없음)" }],
         meta: { engine: ENGINE, elapsedMs },
         error: {
           code: "NO_OUTPUT",
@@ -251,7 +333,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     return {
       ok: true,
       markdown,
-      warnings: [...collectWarnings(stderr), ...cleaned.warnings],
+      warnings: [...logged.warnings, ...cleaned.warnings],
       log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
       meta: { engine: ENGINE, elapsedMs },
     };

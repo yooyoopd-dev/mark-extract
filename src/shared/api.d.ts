@@ -61,6 +61,8 @@ export interface MarkExtractApi {
   /** 프롬프트 전문. 실제로 쓰이는 것과 같은 함수에서 만든다 (결정 25) */
   promptText(): Promise<string>;
   ollamaModels(): Promise<{ ok: boolean; models: string[]; detail: string }>;
+  /** hybrid OCR 서버가 살아 있는지 (7단계). url 을 주면 그 주소로, 없으면 설정값으로. */
+  testHybrid(url?: string): Promise<{ ok: boolean; detail: string; ms: number }>;
 
   /* 창 — 프레임이 없어 캡션 버튼을 우리가 그린다 */
   window(action: WindowAction): Promise<void>;

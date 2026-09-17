@@ -8,6 +8,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
+import { testHybrid } from "./hybrid-http";
 import { probeCli } from "./llm/launch";
 import { clearCache, resolveCli } from "./llm/resolve";
 import { providerOf } from "./llm/providers";
@@ -150,6 +151,14 @@ export function registerIpc(): void {
   // 설치된 Ollama 모델. 본문 생성은 CLI 가 하고 이 조회만 루프백 HTTP 다 (결정 15).
   ipcMain.handle("llm:ollamaModels", () => listModels(settings().ollamaUrl));
 
+  /* OCR — hybrid 서버 --------------------------------- */
+  //
+  // 본문 변환은 Java CLI 가 --hybrid-url 로 직접 부른다. 여기서 HTTP 는 살아 있는지
+  // 보는 것 하나뿐이고, 그 결과가 인스펙터 OCR 토글의 자물쇠를 연다.
+  ipcMain.handle("hybrid:test", (_e, url?: unknown) =>
+    testHybrid(typeof url === "string" && url.trim() !== "" ? url : settings().hybridUrl),
+  );
+
   /* 설정 ------------------------------------------------ */
   ipcMain.handle("settings:get", () => settings());
   ipcMain.handle("settings:set", (_e, patch: Partial<Settings>) => {
@@ -161,7 +170,7 @@ export function registerIpc(): void {
       if (typeof p[key] === "number") clean[key] = p[key] as number;
     }
     if (typeof p["frontmatter"] === "boolean") clean.frontmatter = p["frontmatter"];
-    for (const key of ["model", "ollamaUrl"] as const) {
+    for (const key of ["model", "ollamaUrl", "hybridUrl"] as const) {
       if (typeof p[key] === "string") clean[key] = p[key] as string;
     }
     // 열거형은 normalize 가 모르는 값을 기본값으로 되돌리므로 그대로 넘긴다.

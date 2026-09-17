@@ -10,7 +10,7 @@
 import { esc, icon } from "../markdown.js";
 import type { CliStatus, Settings, WatchFolder } from "../../shared/doc";
 
-export type Pane = "convert" | "llm" | "general";
+export type Pane = "convert" | "llm" | "ocr" | "general";
 
 export interface SettingsView {
   readonly settings: Settings;
@@ -18,6 +18,8 @@ export interface SettingsView {
   /** CLI 탐지 결과. 아직 안 돌렸으면 null */
   readonly cli: readonly CliStatus[] | null;
   readonly ollama: { ok: boolean; models: string[]; detail: string } | null;
+  /** hybrid 서버 연결 테스트 결과. 아직 안 눌렀으면 null */
+  readonly hybrid: { ok: boolean; detail: string; ms: number } | null;
   /** 프롬프트 전문을 펼쳤는가 */
   readonly promptOpen: boolean;
   readonly prompt: string;
@@ -258,6 +260,90 @@ function watchRow(folder: WatchFolder): string {
     </div>`;
 }
 
+/* ── OCR (hybrid 서버) ─────────────────────────────────── */
+
+/** 루프백이 아닌 주소인가. main 의 isRemote 와 같은 판정이다. */
+function looksRemote(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]");
+  } catch {
+    return false;
+  }
+}
+
+const cmd = (id: string, text: string): string => `
+  <div class="ocr-cmd">
+    <code id="${id}">${esc(text)}</code>
+    <button type="button" class="btn od-fixed" data-copy="${id}">${icon("i-copy", "icon icon-sm")}<span>복사</span></button>
+  </div>`;
+
+function ocrPane(view: SettingsView): string {
+  const s = view.settings;
+  const remote = s.hybridUrl !== "" && looksRemote(s.hybridUrl);
+
+  return `
+    <fieldset>
+      <legend>OCR 서버</legend>
+      <p class="settings-hint">
+        PDF 엔진의 로컬 파이프라인에는 <b>OCR 이 없습니다.</b> 텍스트 레이어가 없는 스캔
+        문서는 별도 서버에 넘겨야 인식됩니다. 이 서버는 앱에 포함되어 있지 않아 따로
+        설치·구동하셔야 합니다.
+      </p>
+      ${cmd("ocrInstall", 'pip install "opendataloader-pdf[hybrid]"')}
+      ${cmd("ocrStart", 'opendataloader-pdf-hybrid --port 5002 --force-ocr --ocr-lang "ko,en"')}
+
+      ${field(
+        "hybridUrl",
+        "서버 주소",
+        `<input id="hybridUrl" data-set="hybridUrl" type="text" value="${esc(s.hybridUrl)}"
+                placeholder="예: http://127.0.0.1:5002 (비우면 OCR 을 쓰지 않습니다)">`,
+        "비워 두면 인스펙터의 OCR 토글이 잠깁니다.",
+      )}
+
+      ${
+        remote
+          ? `<p class="settings-warn">
+               ${icon("i-alert", "icon icon-sm")}
+               루프백이 아닌 주소입니다. OCR 을 켜면 <b>PDF 원본이 ${esc(s.hybridUrl)} 로 전송됩니다.</b>
+               사내 규정에 맞는 서버인지 확인하세요.
+             </p>`
+          : ""
+      }
+
+      <div class="od-row settings-actions">
+        <button type="button" class="btn" id="testHybrid">
+          ${icon("i-refresh", "icon icon-sm")}<span>연결 테스트</span>
+        </button>
+      </div>
+
+      ${
+        view.hybrid === null
+          ? ""
+          : view.hybrid.ok
+            ? `<div class="cli-row ok">
+                 <span class="cli-head">
+                   ${icon("i-check", "icon icon-sm")}
+                   <b>연결됨</b>
+                   <span class="cli-path">${esc(view.hybrid.detail)} · ${view.hybrid.ms}ms</span>
+                 </span>
+                 <span class="cli-detail">인스펙터에서 문서마다 OCR 을 켤 수 있습니다.</span>
+               </div>`
+            : `<div class="cli-row miss">
+                 <span class="cli-head">
+                   ${icon("i-alert", "icon icon-sm")}
+                   <b>연결되지 않음</b>
+                 </span>
+                 <span class="cli-detail">${esc(view.hybrid.detail)}</span>
+                 <pre class="cli-report"><code>확인할 것:
+  1) 위 2번 명령으로 서버를 띄웠는지
+  2) 포트 번호가 주소와 같은지
+  3) 방화벽이 그 포트를 막고 있지 않은지</code></pre>
+               </div>`
+      }
+    </fieldset>`;
+}
+
 function generalPane(view: SettingsView): string {
   const s = view.settings;
   return `
@@ -308,5 +394,7 @@ export function renderSettings(host: HTMLElement, view: SettingsView): void {
       ? convertPane(view.settings)
       : view.pane === "llm"
         ? llmPane(view)
-        : generalPane(view);
+        : view.pane === "ocr"
+          ? ocrPane(view)
+          : generalPane(view);
 }

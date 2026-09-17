@@ -36,6 +36,13 @@ export interface State {
   /** 내보내기 기본값. 설정에서 받아 온다. */
   outputDir: string | null;
   frontmatter: boolean;
+  /**
+   * hybrid OCR 서버가 살아 있는가 (7단계).
+   *
+   * 인스펙터 OCR 토글의 자물쇠다. 주소가 적혀 있는 것과 서버가 사는 것은 다르므로
+   * 설정에서 연결 테스트를 통과했을 때만 열린다.
+   */
+  hybridOk: boolean;
 }
 
 export const docs: Doc[] = [];
@@ -54,6 +61,7 @@ export const state: State = {
   draft: null,
   outputDir: null,
   frontmatter: true,
+  hybridOk: false,
 };
 
 export function setDocs(next: readonly Doc[]): void {
@@ -106,6 +114,9 @@ export function isDirty(doc: Doc): boolean {
     "provider",
     "model",
     "inputMode",
+    "ocr",
+    "hybridFullPages",
+    "useStructTree",
   ] as const;
   return keys.some((k) => state.draft?.options[k] !== doc.options[k]);
 }

@@ -46,6 +46,8 @@ const api: MarkExtractApi = {
   detectCli: () => call<CliStatus[]>("llm:detect"),
   promptText: () => call<string>("llm:prompt"),
   ollamaModels: () => call<{ ok: boolean; models: string[]; detail: string }>("llm:ollamaModels"),
+  /** hybrid OCR 서버가 살아 있는지. url 을 주면 그 주소로, 없으면 설정값으로 본다. */
+  testHybrid: (url?: string) => call<{ ok: boolean; detail: string; ms: number }>("hybrid:test", url),
 
   window: (action: WindowAction) => call<void>("window:action", action),
 };

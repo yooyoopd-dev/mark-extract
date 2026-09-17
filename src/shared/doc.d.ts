@@ -79,6 +79,13 @@ export interface Settings {
   maxFileSizeMb: number;
   /** Ollama 루프백 조회 주소. 본문 생성은 CLI 가 한다 (결정 15) */
   ollamaUrl: string;
+  /**
+   * hybrid OCR 서버 주소 (결정 6).
+   *
+   * 빈 문자열이면 OCR 을 쓰지 않는다는 뜻이고 인스펙터 토글이 잠긴다. 원격 주소도
+   * 받는데, 그러면 **PDF 원본이 그 서버로 나간다** — 설정 화면이 그 사실을 알린다.
+   */
+  hybridUrl: string;
 }
 
 export interface ExportRequest {

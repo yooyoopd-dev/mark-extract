@@ -10,7 +10,7 @@
  * 원본의 선택지는 시제품이라 없는 값을 담고 있었다.
  */
 import { esc, icon } from "../markdown.js";
-import { effectiveOptions, KIND_LABEL, STATUS, type Doc, type DocOptions } from "../state.js";
+import { effectiveOptions, KIND_LABEL, state, STATUS, type Doc, type DocOptions } from "../state.js";
 import type { Provider } from "../../shared/parse";
 
 function sizeLabel(bytes: number): string {
@@ -96,6 +96,14 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
   // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
   const strip = options.includeHeaderFooter !== true;
 
+  // OCR 은 PDF 전용이고, hybrid 서버가 살아 있을 때만 켤 수 있다. 주소가 적혀
+  // 있는 것과 서버가 도는 것은 다르다 — 설정의 연결 테스트가 자물쇠다.
+  const ocrReady = doc.kind === "pdf" && state.hybridOk;
+  const ocr = options.ocr === true && ocrReady;
+  const structTree = options.useStructTree === true;
+  // 실측: 태그드 PDF 에 둘 다 주면 CLI 가 구조 트리를 쓰고 서버를 부르지 않는다.
+  const shadowed = ocr && structTree;
+
   host.innerHTML = `
     <div class="insp-sec">
       <h3>문서</h3>
@@ -133,9 +141,41 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
     <div class="insp-sec">
       <h3>추출 옵션</h3>
       <div class="switchrow">
-        <span class="txt"><b>OCR 사용</b><span>텍스트 레이어가 없는 스캔 문서를 이미지에서 인식. hybrid 서버 연결이 필요합니다 (7단계)</span></span>
-        <button class="sw" role="switch" data-opt="ocr" aria-checked="false" aria-label="OCR 사용" disabled></button>
+        <span class="txt"><b>OCR 사용</b><span>${
+          ocrReady
+            ? "텍스트 레이어가 없는 스캔 문서를 이미지에서 인식합니다. 시간이 오래 걸립니다."
+            : doc.kind === "pdf"
+              ? "hybrid 서버가 연결되어 있지 않습니다. 설정 → OCR 에서 연결하세요."
+              : "PDF 에만 적용됩니다."
+        }</span></span>
+        <button class="sw" role="switch" data-opt="ocr" aria-checked="${ocr}" aria-label="OCR 사용" ${
+          ocrReady ? "" : "disabled"
+        }></button>
       </div>
+      ${
+        ocr
+          ? `<div class="switchrow">
+               <span class="txt"><b>모든 페이지 보내기</b><span>기본은 서버에 보낼 페이지를 골라 냅니다. 스캔 페이지를 놓쳤다면 전수를 보냅니다 — 느려집니다.</span></span>
+               <button class="sw" role="switch" data-opt="hybridFullPages" aria-checked="${
+                 options.hybridFullPages === true
+               }" aria-label="모든 페이지 보내기"></button>
+             </div>`
+          : ""
+      }
+      <div class="switchrow">
+        <span class="txt"><b>구조 트리 사용</b><span>태그드 PDF 의 구조로 읽기 순서를 잡습니다. 태그 품질에 따라 결과가 갈립니다.</span></span>
+        <button class="sw" role="switch" data-opt="useStructTree" aria-checked="${structTree}" aria-label="구조 트리 사용" ${
+          doc.kind === "pdf" ? "" : "disabled"
+        }></button>
+      </div>
+      ${
+        shadowed
+          ? `<p class="insp-note">
+               ${icon("i-alert", "icon icon-sm")}
+               태그드 PDF 에서는 <b>구조 트리가 이깁니다.</b> 둘 다 켜면 OCR 서버는 호출되지 않습니다.
+             </p>`
+          : ""
+      }
       <div class="switchrow insp-switch-last">
         <span class="txt"><b>머리글·바닥글 제거</b><span>반복되는 페이지 번호와 머리글을 본문에서 제외</span></span>
         <button class="sw" role="switch" data-opt="strip" aria-checked="${strip}" aria-label="머리글 바닥글 제거"></button>

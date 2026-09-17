@@ -60,6 +60,26 @@ export interface DocOptions {
   /** 문서 열기 암호. 메모리에만 두고 저장하지 않는다 */
   readonly password?: string;
 
+  /* ── OCR · hybrid 서버 (7단계) ────────────────────── */
+  //
+  // opendataloader 의 로컬 Java 파이프라인에는 OCR 이 없다. 외부 Python 서버에
+  // 넘길 때만 동작한다 (결정 6).
+
+  /** 켜면 --hybrid docling-fast. 설정의 서버 주소가 같이 넘어간다 */
+  readonly ocr?: boolean;
+  /**
+   * --hybrid-mode full. 기본 auto 는 서버에 보낼 페이지를 골라 내는데, 그 판정이
+   * 스캔 페이지를 놓쳤을 때 손으로 전수를 보내는 길이다.
+   */
+  readonly hybridFullPages?: boolean;
+  /**
+   * --use-struct-tree. 태그드 PDF 의 구조 트리로 읽기 순서를 잡는다.
+   *
+   * **hybrid 보다 우선한다.** 둘 다 켜고 태그드 PDF 를 넣으면 CLI 가 구조 트리를
+   * 쓰고 서버를 부르지 않는다 (실측 확인).
+   */
+  readonly useStructTree?: boolean;
+
   /* ── LLM 엔진 (6단계) ─────────────────────────────── */
 
   /** 기본은 로컬. LLM 은 같은 문서라도 결과가 달라질 수 있다 */
@@ -85,6 +105,13 @@ export interface DocOptions {
 export interface ParseRequest {
   readonly filePath: string;
   readonly options?: DocOptions;
+  /**
+   * hybrid OCR 서버 주소. 설정에서 오고 문서별 옵션이 아니다 (7단계).
+   *
+   * 비어 있으면 OCR 을 켜도 인자를 붙이지 않는다 — 기본 주소로 붙다 실패하면
+   * 사용자는 OCR 을 켰는데 왜 안 되는지 모른다.
+   */
+  readonly hybridUrl?: string;
   readonly signal?: AbortSignal;
   readonly onProgress?: (current: number, total: number) => void;
 }

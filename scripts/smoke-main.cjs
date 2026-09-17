@@ -23,6 +23,12 @@ const { join } = require("node:path");
 const { createMainWindow } = require("../out/main/window.js");
 const { broadcastChanges, registerIpc } = require("../out/main/ipc.js");
 
+// OCR 서버 주소를 비워 둔다. 기본값(127.0.0.1:5002)을 그대로 두면 개발 머신에서
+// 서버를 띄워 둔 사람의 스모크만 다르게 돌아 — "서버 없음" 단언이 비결정적이 된다.
+// 사용자가 아직 OCR 을 설정하지 않은 상태와 같다.
+mkdirSync(app.getPath("userData"), { recursive: true });
+writeFileSync(join(app.getPath("userData"), "settings.json"), JSON.stringify({ hybridUrl: "" }), "utf8");
+
 const ROOT = join(__dirname, "..");
 const SHOTS = join(ROOT, "out/smoke");
 
@@ -203,6 +209,39 @@ app.whenReady().then(async () => {
         }
         if (br.escapedPipeRow.text.includes("\\|")) failures.push("표에 \\| 가 글자로 보입니다");
       }
+    }
+
+    // 2-b. OCR 토글의 자물쇠 (7단계). hybrid 서버가 없는 상태로 도는 스모크에서는
+    //      잠겨 있어야 한다 — 열려 있으면 켜 봐야 같은 실패를 보게 된다. 구조 트리는
+    //      서버와 무관하므로 PDF 에서 열려 있어야 한다.
+    //      앞 검사가 sample-table.docx 를 골라 둔 상태다. OCR·구조 트리는 PDF 전용이라
+    //      PDF 를 다시 고르고 본다.
+    const ocr = await win.webContents.executeJavaScript(`(() => {
+      const card = [...document.querySelectorAll("#docList .doc")]
+        .find((el) => (el.textContent ?? "").includes("sample-ko.pdf"));
+      if (!card) return { error: "sample-ko.pdf 카드를 찾지 못함" };
+      card.click();
+      return new Promise((resolve) => setTimeout(() => {
+        const sw = (opt) => document.querySelector('.inspector [data-opt="' + opt + '"]');
+        const ocrSw = sw("ocr");
+        const stSw = sw("useStructTree");
+        if (!ocrSw || !stSw) return resolve({ error: "OCR·구조 트리 토글이 인스펙터에 없습니다" });
+        resolve({
+          ocrDisabled: ocrSw.hasAttribute("disabled"),
+          structDisabled: stSw.hasAttribute("disabled"),
+          hint: (ocrSw.closest(".switchrow")?.textContent || "").includes("설정"),
+          note: document.querySelectorAll(".inspector .insp-note").length,
+        });
+      }, 150));
+    })()`);
+
+    if (ocr.error) failures.push(ocr.error);
+    else {
+      if (!ocr.ocrDisabled) failures.push("서버가 없는데 OCR 토글이 열려 있습니다");
+      if (!ocr.hint) failures.push("OCR 토글에 설정으로 보내는 안내가 없습니다");
+      if (ocr.note !== 0) failures.push("OCR 이 꺼져 있는데 우선순위 안내가 떠 있습니다");
+      // 선택한 문서가 PDF 일 때만 의미가 있다. sample-ko.pdf 가 목록에 있다.
+      if (ocr.structDisabled) failures.push("PDF 인데 구조 트리 토글이 잠겨 있습니다");
     }
 
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,

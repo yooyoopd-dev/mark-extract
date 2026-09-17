@@ -190,10 +190,38 @@ function selectDoc(doc: Doc): void {
 }
 
 /** 인스펙터에서 만진 옵션으로 재변환한다. 손댄 것이 없으면 저장된 옵션 그대로. */
-function reconvert(doc: Doc): void {
-  const options = effectiveOptions(doc);
+function reconvert(doc: Doc, patch: DocOptions = {}): void {
+  const options = { ...effectiveOptions(doc), ...patch };
   state.draft = null;
   void window.markExtract.reconvert(doc.id, options).then(refresh);
+}
+
+/**
+ * 실패 화면의 재시도 버튼 (docs/design/02-parser-adapters.md).
+ *
+ * 지금까지는 어느 버튼이든 그대로 재변환했다 — "OCR 을 켜고 재시도"가 OCR 을 켜지
+ * 않았다는 뜻이다. 버튼이 이름대로 하지 않으면 사용자는 같은 실패를 두 번 본다.
+ */
+function applyRetry(doc: Doc, action: string): void {
+  switch (action) {
+    case "retry-with-ocr":
+      // 서버가 없으면 재변환해 봐야 같은 실패다. 연결하는 자리로 보낸다.
+      if (!state.hybridOk) {
+        void openSettings("ocr");
+        return;
+      }
+      return reconvert(doc, { ocr: true });
+    case "retry-mode-b":
+      return reconvert(doc, { engine: "llm", inputMode: "B" });
+    case "retry-with-password":
+      // 암호 입력란이 아직 어디에도 없다. DocOptions.password 와 어댑터의
+      // --password 는 있지만 값을 받는 화면이 없어, 암호 걸린 파일은 지금 막다른
+      // 길이다. 그대로 재변환하면 같은 실패를 반복하므로 사실대로 알린다.
+      toast("암호 입력은 아직 없습니다. 암호를 푼 사본으로 다시 시도해 주세요.");
+      return;
+    default:
+      return reconvert(doc);
+  }
 }
 
 function editOption(doc: Doc, patch: DocOptions): void {
@@ -344,7 +372,8 @@ function bind(): void {
     const doc = getDoc(state.selected);
     if (!doc) return;
 
-    if (target.closest("[data-retry]")) reconvert(doc);
+    const retry = target.closest<HTMLElement>("[data-retry]");
+    if (retry) return applyRetry(doc, retry.dataset["retry"] ?? "retry-plain");
     else if (target.closest("#cancelRun")) void window.markExtract.cancel(doc.id).then(refresh);
     else if (target.closest("#copyLog")) {
       void navigator.clipboard.writeText(logText(doc)).then(() => toast("변환 로그를 복사했습니다."));
@@ -366,9 +395,21 @@ function bind(): void {
     if (target.closest("#inspExport")) return openExport();
 
     const sw = target.closest<HTMLElement>(".sw");
-    if (sw && !sw.hasAttribute("disabled") && sw.dataset["opt"] === "strip") {
-      // 스위치는 "머리글·바닥글 제거"이고 옵션은 "포함"이라 값이 뒤집힌다.
-      editOption(doc, { includeHeaderFooter: sw.getAttribute("aria-checked") === "true" });
+    if (!sw || sw.hasAttribute("disabled")) return;
+    const on = sw.getAttribute("aria-checked") !== "true";
+
+    switch (sw.dataset["opt"]) {
+      case "strip":
+        // 스위치는 "머리글·바닥글 제거"이고 옵션은 "포함"이라 값이 뒤집힌다.
+        return editOption(doc, { includeHeaderFooter: !on });
+      case "ocr":
+        return editOption(doc, { ocr: on });
+      case "hybridFullPages":
+        return editOption(doc, { hybridFullPages: on });
+      case "useStructTree":
+        return editOption(doc, { useStructTree: on });
+      default:
+        return;
     }
   });
 
@@ -531,6 +572,7 @@ const settingsView: { -readonly [K in keyof SettingsView]: SettingsView[K] } = {
   pane: "convert",
   cli: null,
   ollama: null,
+  hybrid: null,
   promptOpen: false,
   prompt: "",
   version: "",
@@ -543,7 +585,8 @@ function paintSettings(): void {
   }
 }
 
-async function openSettings(): Promise<void> {
+async function openSettings(pane?: Pane): Promise<void> {
+  if (pane) settingsView.pane = pane;
   settingsView.settings = await window.markExtract.getSettings();
   settingsView.version = window.markExtract.version;
   settingsOverlay.hidden = false;
@@ -551,6 +594,7 @@ async function openSettings(): Promise<void> {
 
   // 탐지와 모델 조회는 느릴 수 있다. 화면을 먼저 띄우고 채운다.
   if (settingsView.pane === "llm") void loadLlmStatus();
+  if (settingsView.pane === "ocr") void loadHybridStatus();
 }
 
 const closeSettings = (): void => {
@@ -574,6 +618,22 @@ async function loadLlmStatus(): Promise<void> {
   paintSettings();
 }
 
+/**
+ * hybrid 서버 연결 테스트.
+ *
+ * 결과는 설정 화면뿐 아니라 **인스펙터 OCR 토글의 자물쇠**도 연다. 찾았다고 도는
+ * 것이 아니라는 6b 의 교훈과 같다 — 주소가 적혀 있는 것과 서버가 사는 것은 다르다.
+ */
+async function loadHybridStatus(): Promise<void> {
+  settingsView.hybrid = null;
+  paintSettings();
+  const hybrid = await window.markExtract.testHybrid(settingsView.settings.hybridUrl);
+  settingsView.hybrid = hybrid;
+  state.hybridOk = hybrid.ok;
+  paintSettings();
+  render();
+}
+
 /** 값 하나를 바꾼다. 확인 버튼 없이 바로 저장한다. */
 async function saveSetting(key: string, value: unknown): Promise<void> {
   settingsView.settings = await window.markExtract.setSettings({ [key]: value } as Partial<Settings>);
@@ -589,6 +649,12 @@ async function saveSetting(key: string, value: unknown): Promise<void> {
   // 프롬프트는 입력 모드·출력 언어에 딸려 바뀐다.
   if (key === "inputMode" || key === "language") {
     settingsView.prompt = await window.markExtract.promptText();
+  }
+  // 주소가 바뀌면 이전 테스트 결과는 낡은 것이다. 토글도 같이 잠근다.
+  if (key === "hybridUrl") {
+    settingsView.hybrid = null;
+    state.hybridOk = false;
+    render();
   }
   // 프로바이더를 Ollama 로 바꾸면 모델 목록을 다시 받는다.
   if (key === "provider" || key === "ollamaUrl") {
@@ -612,6 +678,7 @@ function bindSettings(): void {
       settingsView.pane = (tab.dataset["pane"] ?? "convert") as Pane;
       paintSettings();
       if (settingsView.pane === "llm" && settingsView.cli === null) void loadLlmStatus();
+      if (settingsView.pane === "ocr" && settingsView.hybrid === null) void loadHybridStatus();
     });
   }
 
@@ -641,6 +708,14 @@ function bindSettings(): void {
     if (target.closest("#copyPrompt")) {
       return void navigator.clipboard.writeText(settingsView.prompt).then(() => toast("프롬프트를 복사했습니다."));
     }
+    if (target.closest("#testHybrid")) return void loadHybridStatus();
+
+    const copy = target.closest<HTMLElement>("[data-copy]");
+    if (copy) {
+      const text = document.getElementById(copy.dataset["copy"]!)?.textContent ?? "";
+      return void navigator.clipboard.writeText(text).then(() => toast("명령을 복사했습니다."));
+    }
+
     if (target.closest("#copyReport")) {
       // 사내망 PC 는 로그를 반출할 수 없다. 화면의 것을 그대로 가져갈 수 있어야 한다.
       const text = (settingsView.cli ?? [])
@@ -770,6 +845,15 @@ void (async () => {
   applyTheme();
 
   await refresh();
+
+  // hybrid 서버가 살아 있는지 한 번 본다 — 인스펙터 OCR 토글의 자물쇠다. 3초
+  // 타임아웃이라 시작을 막지 않고, 실패해도 앱은 그대로 쓴다.
+  if (settings.hybridUrl !== "") {
+    void window.markExtract.testHybrid(settings.hybridUrl).then((hybrid) => {
+      state.hybridOk = hybrid.ok;
+      render();
+    });
+  }
 
   // 명령줄로 받은 문서. 탐색기에서 "연결 프로그램"으로 열 때 들어온다.
   await addPaths(await window.markExtract.initialFiles());

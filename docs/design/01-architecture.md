@@ -35,7 +35,7 @@ Electron 3계층. 렌더러는 Node에 접근하지 못하고, 파일 시스템�
 | `doc:markdown` | R→M | 변환 결과 조회 |
 | `export:markdown` | R→M | 파일 저장 |
 | `settings:get` / `settings:set` | R↔M | 설정 |
-| `diag:cli` / `diag:hybrid` | R→M | CLI·서버 진단 |
+| `llm:detect` / `hybrid:test` | R→M | CLI 탐지(실제 실행까지) · OCR 서버 연결 테스트 |
 | `watch:add` / `watch:remove` / `watch:event` | R↔M | 감시 폴더 |
 
 ## 변환 파이프라인

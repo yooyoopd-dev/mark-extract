@@ -17,7 +17,8 @@
     "verify:queue": "node scripts/verify-queue.mjs",
     "verify:llm": "node scripts/verify-llm.mjs",
     "verify:settings": "node scripts/verify-settings.mjs",
-    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings",
+    "verify:ocr": "node scripts/verify-ocr.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings && npm run verify:ocr",
     "dist:win": "electron-builder --win portable"
   },
   "devDependencies": {

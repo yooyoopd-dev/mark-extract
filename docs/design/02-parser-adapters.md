@@ -68,9 +68,20 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 | 암호 | `--password` | 문서 열기 암호 |
 | 페이지 구분자 | `--markdown-page-separator` | `%page-number%` 치환 지원 |
 | 줄바꿈 보존 | `--keep-line-breaks` | |
-| OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` `--hybrid-timeout` | → [OCR](#ocr과-hybrid-서버) |
+| OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` | → [OCR](#ocr과-hybrid-서버) |
+| 모든 페이지 보내기 | `--hybrid-mode` | `auto`(기본, 선별) / `full`(전 페이지) |
+| 구조 트리 | `--use-struct-tree` | 태그드 PDF 의 읽기 순서. **hybrid 보다 우선** |
 
-고정값: `--format markdown`, `--quiet`(로그는 stderr로), **`--keep-line-breaks`**(아래 참조).
+고정값: `--format markdown`, **`--keep-line-breaks`**(아래 참조), `--markdown-with-html`.
+
+### `--quiet`는 쓰지 않는다 (7단계 실측)
+
+원래 고정값에 `--quiet`가 있었다. 그것이 `java.util.logging`을 **통째로** 끄는 바람에 `WARNING`도 `SEVERE`도 사라졌다.
+
+- `collectWarnings()`는 2단계부터 **한 줄도 받지 못하는 죽은 코드**였다. `WARNING: Detected background on page 1` 같은 실제 경고가 조용히 버려지고 있었다
+- hybrid 서버가 꺼졌을 때 CLI가 내주는 **설치·구동 안내 6줄이 통째로 사라져**, 실패가 `변환 엔진이 1 로 끝났습니다`만 남았다
+
+이제 `--quiet` 없이 받고 `javaLog()`가 레벨별로 가른다. `INFO`는 버리고(페이지 수·제목 등, 양만 많다), `WARNING`은 사용자 경고로, `SEVERE`는 실패 사유로 올린다. 한 기록이 여러 줄이므로 **이어지는 줄까지 모은다** — 안내가 반쪽이 되면 쓸모가 없다.
 
 **`--space-ratio` 는 노출하지 않는다.** 한글 문제를 이걸로 고칠 수 있나 시험했더니 오히려 망가진다.
 
@@ -112,8 +123,25 @@ opendataloader의 **로컬 Java 파이프라인에는 OCR이 없다.** OCR은 `-
 
 - 서버는 exe에 포함하지 않는다. 사용자가 따로 설치·구동한다 (→ [04 설정 화면](04-ui-spec.md#설정-화면))
 - 설정에 URL이 있고 연결 테스트를 통과했을 때만 인스펙터의 OCR 토글이 활성화된다
-- `--hybrid-fallback`은 기본 끔. 서버 오류를 조용히 Java 경로로 되돌리면 사용자가 OCR이 안 걸린 걸 모른다. 대신 실패로 처리하고 '그대로 재시도' 버튼을 준다
-- `--use-struct-tree`는 태그드 PDF에서 hybrid보다 **우선한다**. 둘 다 켜면 구조 트리가 이기고 hybrid는 호출되지 않으므로, UI에서 동시 선택 시 그 사실을 표시한다
+- `--hybrid-fallback`은 **어떤 경우에도 넘기지 않는다.** CLI 기본값이 이미 꺼짐이라 넘길 필요도 없다. 서버 오류를 조용히 Java 경로로 되돌리면 사용자가 OCR이 안 걸린 결과를 OCR 결과로 믿는다
+- 서버 주소가 비어 있으면 OCR을 켜도 `--hybrid`를 붙이지 않는다. 붙이면 CLI가 자기 기본 주소로 붙다 실패하고, 사용자는 왜 안 되는지 모른다
+- OCR을 켜면 **프로세스 제한 시간을 30분으로 올린다**(기본 10분). 스캔 수십 장이면 10분은 정상 동작을 실패로 만든다 — build.8에서 LLM 경로가 같은 이유로 물렸다. `--hybrid-timeout`은 백엔드 쪽 시간이라 건드리지 않는다(0 = 백엔드 기본값)
+
+### 실측 (Docling Fast Server 1.0.0)
+
+서버를 실제로 깔아(`pip install "opendataloader-pdf[hybrid]"`) 띄워서 확인했다.
+
+| 확인한 것 | 결과 |
+|---|---|
+| 연결 테스트 엔드포인트 | `GET /health` → `200 {"status":"ok"}`, 13ms |
+| Java CLI가 부르는 곳 | `POST /v1/convert/file` (우리는 부르지 않는다) |
+| 서버 꺼짐 | exit 1 + `SEVERE: … Hybrid server is not available at <url>` 에 설치·구동 안내 동봉 |
+| 서버 살아 있고 백엔드 실패 | exit 1 + `WARNING: Backend chunk failed …` → `SEVERE: Backend processing failed for N page(s) with fallback disabled` |
+| `--use-struct-tree` + `--hybrid` (태그드 PDF) | exit 0, **서버 호출 없음**(POST 수 변화 없음). CLI가 직접 경고를 낸다 |
+
+`--use-struct-tree`는 태그드 PDF에서 hybrid보다 **우선한다**. 둘 다 켜면 구조 트리가 이기고 hybrid는 호출되지 않으므로, 인스펙터에서 동시 선택 시 그 사실을 표시한다.
+
+> **검증하지 못한 것: 실제 OCR 결과.** docling이 모델을 HuggingFace에서 받는데 개발 환경의 네트워크 정책이 그것을 막는다(`httpx.ProxyError: 403`). 서버까지 닿는 것과 실패를 읽는 것은 확인했고, 인식 품질은 사내 PC에서 확인해야 한다.
 
 ---
 

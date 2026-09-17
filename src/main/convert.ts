@@ -46,10 +46,14 @@ async function convertLocally(request: ParseRequest): Promise<ParseResult> {
 }
 
 export async function convert(request: ParseRequest): Promise<ParseResult> {
-  // 엔진 선택은 문서 단위다 (결정 7). 기본은 로컬 — 재현 가능한 결과가 기본이어야 한다.
-  if (request.options?.engine !== "llm") return convertLocally(request);
+  // 서버 주소는 문서별이 아니라 앱 전체 설정이다. 모드 B 의 로컬 단계도 이 경로를
+  // 지나므로 여기서 한 번만 실어 준다.
+  const withHybrid: ParseRequest = { ...request, hybridUrl: settings().hybridUrl };
 
-  // 출력 언어와 Ollama 주소는 문서별이 아니라 앱 전체 설정이다.
+  // 엔진 선택은 문서 단위다 (결정 7). 기본은 로컬 — 재현 가능한 결과가 기본이어야 한다.
+  if (request.options?.engine !== "llm") return convertLocally(withHybrid);
+
+  // 출력 언어와 Ollama 주소도 앱 전체 설정이다.
   const { language, ollamaUrl } = settings();
-  return parseWithLlm({ ...request, language, ollamaUrl }, convertLocally);
+  return parseWithLlm({ ...withHybrid, language, ollamaUrl }, convertLocally);
 }
