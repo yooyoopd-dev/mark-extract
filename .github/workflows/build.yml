@@ -179,13 +179,19 @@ jobs:
 
           # 두 번 돌린다. 두 번째가 빨라지면 압축 해제 결과를 재사용한다는 뜻이고,
           # 그러면 "첫 실행만 느리다"가 사실이 된다.
+          #
+          # 출력은 --self-test-out 으로 파일에서 받는다. NSIS 스텁이 한 겹 끼어
+          # 있어 리다이렉트한 stdout 에는 한 글자도 오지 않는다 (run 18 실측 —
+          # exit 0 인데 파일이 비었다).
+          $verify = (Resolve-Path out/verify).Path
           $results = @()
           foreach ($run in 1, 2) {
-            $out = "out/verify/portable-self-test-$run.txt"
-            $err = "out/verify/portable-self-test-$run.err.txt"
+            $log = Join-Path $verify "portable-self-test-$run.txt"
+            $err = Join-Path $verify "portable-self-test-$run.err.txt"
+            Remove-Item $log -ErrorAction SilentlyContinue
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru `
-                   -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden
+            $p = Start-Process -FilePath $exe -ArgumentList '--self-test', '--self-test-out', $log -PassThru `
+                   -RedirectStandardOutput "$err.stdout" -RedirectStandardError $err -WindowStyle Hidden
             if (-not $p.WaitForExit(300000)) {
               $p.Kill()
               throw "단일 exe 자체 점검이 300초를 넘겨 중단되었습니다 ($run 회차)."
@@ -193,13 +199,13 @@ jobs:
             $sw.Stop()
             $results += [pscustomobject]@{ Run = $run; Sec = [math]::Round($sw.Elapsed.TotalSeconds, 1); Exit = $p.ExitCode }
             Write-Host "--- $run 회차 ($($sw.Elapsed.TotalSeconds.ToString('0.0'))초, exit $($p.ExitCode)) ---"
-            Get-Content $out -ErrorAction SilentlyContinue | Write-Host
+            Get-Content $log -ErrorAction SilentlyContinue | Write-Host
             Get-Content $err -ErrorAction SilentlyContinue | Write-Host
           }
 
-          $text = Get-Content out/verify/portable-self-test-1.txt -Raw -ErrorAction SilentlyContinue
+          $text = Get-Content (Join-Path $verify "portable-self-test-1.txt") -Raw -ErrorAction SilentlyContinue
           if (-not $text) {
-            throw "단일 exe 가 stdout 을 내놓지 않았습니다. portable 스텁이 --self-test 를 앱에 넘기지 않거나 출력을 삼킵니다 — 이 사실을 문서에 적고 점검 방법을 바꿔야 합니다."
+            throw "단일 exe 가 --self-test-out 파일을 남기지 않았습니다. 인자가 앱까지 가지 않거나 자체 점검이 그 전에 죽습니다."
           }
           if ($results[0].Exit -ne 0) { throw "단일 exe 자체 점검 실패 (exit $($results[0].Exit))" }
           if ($text -notmatch '동봉 JRE') { throw "동봉 JRE 를 쓰지 않았습니다 — 시스템 java 로 샜습니다." }
@@ -270,9 +276,10 @@ jobs:
             echo
             echo "## 첫 실행이 느린 이유"
             echo
-            echo "단일 exe 는 실행할 때마다 자기 압축을 \`%TEMP%\` 로 풉니다(약 280MB)."
-            echo "처음에는 여기에 사내 백신의 전수 검사가 겹쳐 수십 초가 걸릴 수 있습니다."
-            echo "그 동안에는 앱 로고가 담긴 작은 창만 뜹니다 — 멈춘 것이 아닙니다."
+            echo "단일 exe 는 **실행할 때마다** 자기 압축을 \`%TEMP%\` 로 풉니다(약 280MB)."
+            echo "CI 실측으로 그 구간만 20초 남짓이고, 처음에는 사내 백신의 전수 검사가"
+            echo "겹쳐 더 걸립니다. 그 동안에는 앱 로고가 담긴 작은 창만 뜹니다 — 멈춘 것이"
+            echo "아닙니다."
             echo
             echo '```'
             cat verify/portable-timing.txt 2>/dev/null || echo "(측정값 없음)"

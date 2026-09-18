@@ -12,6 +12,11 @@
  *
  * 8단계에서 환경 점검을 더했다. 검증 스크립트 여섯 판은 Node 와 저장소가 있어야
  * 돌기 때문에, 사내 PC 에서 확인할 수 있는 것은 여기 적히는 것이 전부다.
+ *
+ * `--self-test-out <파일>` 은 같은 내용을 파일로도 남긴다. 단일 exe(portable)는
+ * NSIS 스텁이 한 겹 끼어 있어 **stdout 이 호출자에게 닿지 않는다** — 실측에서
+ * 종료 코드 0 은 돌아왔지만 리다이렉트한 파일이 비어 있었다. CI 가 배포하는 그
+ * 파일을 점검하려면 출력을 받을 다른 통로가 필요하다.
  */
 import { app } from "electron";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -28,6 +33,14 @@ const SAMPLES = ["sample-ko.pdf", "sample-ko.docx", "sample-ko.xlsx", "sample-ko
 
 function fixturesDir(): string {
   return app.isPackaged ? join(process.resourcesPath, "fixtures") : join(app.getAppPath(), "test/fixtures");
+}
+
+/** `--self-test-out <파일>`. 없으면 undefined. */
+export function selfTestOutPath(argv: readonly string[]): string | undefined {
+  const at = argv.indexOf("--self-test-out");
+  if (at === -1) return undefined;
+  const next = argv[at + 1];
+  return next !== undefined && !next.startsWith("--") ? next : undefined;
 }
 
 export function selfTestTargets(argv: readonly string[]): string[] | null {
@@ -83,8 +96,13 @@ async function environment(out: Out): Promise<void> {
   out("OCR 서버", hybrid.ok ? `정상 (${url}, ${hybrid.ms}ms)` : `닿지 않습니다 (${url}) — ${hybrid.detail}`);
 }
 
-export async function runSelfTest(targets: readonly string[]): Promise<number> {
-  const out = (label: string, value: string) => console.log(`${label.padEnd(12)} ${value}`);
+export async function runSelfTest(targets: readonly string[], outFile?: string): Promise<number> {
+  const lines: string[] = [];
+  const say = (text: string): void => {
+    lines.push(text);
+    console.log(text);
+  };
+  const out = (label: string, value: string) => say(`${label.padEnd(12)} ${value}`);
 
   out("플랫폼", `${process.platform} ${process.arch}`);
   out("패키징", String(app.isPackaged));
@@ -97,7 +115,7 @@ export async function runSelfTest(targets: readonly string[]): Promise<number> {
   out("엔진 확인", health.ok ? `정상 (${health.detail})` : `실패 — ${health.detail}`);
   if (!health.ok) return 1;
 
-  console.log("");
+  say("");
   await environment(out);
 
   if (targets.length === 0) {
@@ -107,7 +125,7 @@ export async function runSelfTest(targets: readonly string[]): Promise<number> {
 
   let failed = 0;
   for (const target of targets) {
-    console.log(`\n--- ${target} ---`);
+    say(`\n--- ${target} ---`);
     const result = await convert({ filePath: target });
 
     if (!result.ok) {
@@ -119,7 +137,7 @@ export async function runSelfTest(targets: readonly string[]): Promise<number> {
 
     out("엔진", result.meta.engine);
     out("변환", `성공 (${(result.meta.elapsedMs / 1000).toFixed(1)}초, 경고 ${result.warnings.length}건)`);
-    console.log(
+    say(
       result.markdown
         .split("\n")
         .filter((line) => line.trim() !== "")
@@ -128,6 +146,15 @@ export async function runSelfTest(targets: readonly string[]): Promise<number> {
     );
   }
 
-  console.log(`\n${targets.length - failed}/${targets.length} 성공`);
+  say(`\n${targets.length - failed}/${targets.length} 성공`);
+
+  if (outFile !== undefined) {
+    // 여기서 실패해도 점검 결과를 뒤집지 않는다. 종료 코드는 변환 결과의 것이다.
+    try {
+      writeFileSync(outFile, `${lines.join("\n")}\n`, "utf8");
+    } catch (error) {
+      console.error(`출력 파일을 쓰지 못했습니다: ${(error as Error).message}`);
+    }
+  }
   return failed === 0 ? 0 : 1;
 }
