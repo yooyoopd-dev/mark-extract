@@ -153,6 +153,62 @@ jobs:
           Get-Content $err -ErrorAction SilentlyContinue | Write-Host
           if ($p.ExitCode -ne 0) { throw "자체 점검 실패 (exit $($p.ExitCode))" }
 
+      # 여기까지는 압축을 풀어 놓은 디렉터리(win-unpacked)를 봤다. 그런데 사용자가
+      # 받는 것은 `dist/*.exe` — 자기 압축 해제 단일 실행 파일이고, 그쪽은 지금까지
+      # CI 에서 한 번도 실행된 적이 없다. 배포하는 바로 그 파일을 돌린다.
+      #
+      # PATH 에서 JDK 를 빼고 돌린다. 러너에는 setup-java 로 JDK 21 이 깔려 있어,
+      # 어댑터가 동봉 JRE 대신 시스템 java 로 새도 그냥 초록이 뜬다. "Java 가 없는
+      # PC" 라는 전제는 이렇게 해야 증명된다.
+      - name: 배포하는 단일 exe 자체 점검 (Java 없는 PATH)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/verify | Out-Null
+          $exe = (Get-ChildItem dist/*.exe | Select-Object -First 1).FullName
+          $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "exe: $exe"
+          Write-Host "exe 크기: $mb MB"
+          "$mb" | Out-File -Encoding utf8 out/verify/exe-size-mb.txt
+
+          $env:JAVA_HOME = ""
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch '(?i)jdk|jre|\\java' }) -join ';'
+          if (Get-Command java -ErrorAction SilentlyContinue) {
+            throw "PATH 에서 java 를 빼지 못했습니다 — 이 점검은 의미가 없습니다."
+          }
+          Write-Host "PATH 에 java 없음 — 확인"
+
+          # 두 번 돌린다. 두 번째가 빨라지면 압축 해제 결과를 재사용한다는 뜻이고,
+          # 그러면 "첫 실행만 느리다"가 사실이 된다.
+          $results = @()
+          foreach ($run in 1, 2) {
+            $out = "out/verify/portable-self-test-$run.txt"
+            $err = "out/verify/portable-self-test-$run.err.txt"
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru `
+                   -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden
+            if (-not $p.WaitForExit(300000)) {
+              $p.Kill()
+              throw "단일 exe 자체 점검이 300초를 넘겨 중단되었습니다 ($run 회차)."
+            }
+            $sw.Stop()
+            $results += [pscustomobject]@{ Run = $run; Sec = [math]::Round($sw.Elapsed.TotalSeconds, 1); Exit = $p.ExitCode }
+            Write-Host "--- $run 회차 ($($sw.Elapsed.TotalSeconds.ToString('0.0'))초, exit $($p.ExitCode)) ---"
+            Get-Content $out -ErrorAction SilentlyContinue | Write-Host
+            Get-Content $err -ErrorAction SilentlyContinue | Write-Host
+          }
+
+          $text = Get-Content out/verify/portable-self-test-1.txt -Raw -ErrorAction SilentlyContinue
+          if (-not $text) {
+            throw "단일 exe 가 stdout 을 내놓지 않았습니다. portable 스텁이 --self-test 를 앱에 넘기지 않거나 출력을 삼킵니다 — 이 사실을 문서에 적고 점검 방법을 바꿔야 합니다."
+          }
+          if ($results[0].Exit -ne 0) { throw "단일 exe 자체 점검 실패 (exit $($results[0].Exit))" }
+          if ($text -notmatch '동봉 JRE') { throw "동봉 JRE 를 쓰지 않았습니다 — 시스템 java 로 샜습니다." }
+          if ($text -notmatch '5/5 성공') { throw "다섯 형식을 모두 변환하지 못했습니다." }
+
+          Write-Host ("첫 실행 {0}초 · 두 번째 {1}초 · exe {2} MB" -f $results[0].Sec, $results[1].Sec, $mb)
+          "첫 실행 $($results[0].Sec)초 / 두 번째 $($results[1].Sec)초 / exe $mb MB" |
+            Out-File -Encoding utf8 out/verify/portable-timing.txt
+
       - name: 변환 결과·로그 업로드
         uses: actions/upload-artifact@v4
         if: always()
@@ -212,10 +268,24 @@ jobs:
             echo "서명하지 않은 실행 파일이라 SmartScreen 이 막을 수 있습니다."
             echo "\"추가 정보\" → \"실행\" 으로 넘어갑니다."
             echo
+            echo "## 첫 실행이 느린 이유"
+            echo
+            echo "단일 exe 는 실행할 때마다 자기 압축을 \`%TEMP%\` 로 풉니다(약 280MB)."
+            echo "처음에는 여기에 사내 백신의 전수 검사가 겹쳐 수십 초가 걸릴 수 있습니다."
+            echo "그 동안에는 앱 로고가 담긴 작은 창만 뜹니다 — 멈춘 것이 아닙니다."
+            echo
+            echo '```'
+            cat verify/portable-timing.txt 2>/dev/null || echo "(측정값 없음)"
+            echo '```'
+            echo
             echo "## 확인된 것"
             echo
             echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 5종, 변환 큐·감시 폴더·내보내기"
             echo "- Windows: 동봉 JRE 로 한글 문서 5종 변환, 패키징 배치, 패키징된 앱 자체 점검"
+            echo "- Windows: **배포하는 단일 exe 를 PATH 에서 JDK 를 뺀 채** 돌려 동봉 JRE 사용과 5종 변환 확인"
+            echo
+            echo "아직 확인되지 않은 것: 실제 OCR 인식 결과, gemini·codex 의 성공 응답 본문,"
+            echo "Ollama 실동작. 개발 환경에서 모델·인증에 닿을 수 없어 남겨 두었습니다."
             echo
             echo "## Windows 자체 점검 출력"
             echo

@@ -19,7 +19,15 @@ const SHIM = /\.(cmd|bat)$/i;
 export const isShim = (path: string): boolean => SHIM.test(path);
 
 /** CLI 가 살아 있는지 보는 데 이만큼이면 충분하다. 설정 화면이 기다리는 시간이다. */
-const PROBE_MS = 5000;
+/**
+ * 탐지용 `--version` 을 기다리는 시간.
+ *
+ * 5초였으나 실측에서 부족했다. 이 컨테이너에서 gemini·codex 를 그날 처음 띄웠을
+ * 때 둘 다 5초 안에 답하지 못했고(두 번째부터는 각각 1.5초·0.05초), 사내 PC 는
+ * 백신이 큰 JS 번들을 전수 검사하므로 더 느릴 수 있다. 여기서 모자라면 설정
+ * 화면이 멀쩡히 도는 CLI 를 "실행하지 못했습니다"로 적는다.
+ */
+const PROBE_MS = 15000;
 
 /**
  * 인자 하나를 cmd.exe 용으로 인용한다.

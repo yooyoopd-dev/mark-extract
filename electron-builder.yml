@@ -44,3 +44,9 @@ win:
       arch:
         - x64
   artifactName: MarkExtract-${version}.exe
+
+# 단일 exe 는 실행할 때마다 %TEMP% 로 약 280MB 를 푼다. 그 동안에는 우리 JS 가 한
+# 줄도 돌지 않으므로 BrowserWindow 스플래시로 덮을 수 없다 — NSIS 스텁이 띄우는
+# 이 비트맵이 그 구간을 덮는 유일한 수단이다 (docs/design/05-packaging.md#첫-실행).
+portable:
+  splashImage: build/splash.bmp

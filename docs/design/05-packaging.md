@@ -9,13 +9,11 @@
 electron-builder `portable` 타깃. 자기 압축 해제 실행 파일 하나가 나온다.
 
 ```
-build:
-  win:
-    target: [portable]
-    artifactName: MarkExtract-${version}.exe
-  asarUnpack:
-    - resources/jre/**
-    - resources/lib/*.jar
+win:
+  target: [{ target: portable, arch: [x64] }]
+  artifactName: MarkExtract-${version}.exe
+portable:
+  splashImage: build/splash.bmp
 ```
 
 JRE 와 JAR 은 **asar 바깥**에 둔다. 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못한다. `asarUnpack` 이 아니라 `extraResources` 를 쓴다 — 이 파일들은 앱 소스 트리 밖(`resources/`)에서 만들어지기 때문이다. 앱의 `resources/` 아래 `jre/`, `lib/` 로 들어가고, 어댑터는 패키징 시 `process.resourcesPath` 를 기준으로 찾는다.
@@ -63,12 +61,39 @@ JRE 와 JAR 은 2단계에서 실측했다. exe 압축 크기는 아직 추정�
 
 ## 첫 실행
 
-단일 exe는 실행할 때마다 임시 폴더로 압축을 푼다. 여기에 더해:
+"첫 실행 지연"은 한 덩어리가 아니다. 구간마다 우리가 할 수 있는 일이 다르다.
 
-- **JVM 콜드 스타트** — 첫 PDF 변환이 이후보다 느리다
-- **사내 백신 스캔** — 처음 보는 큰 실행 파일은 전수 검사를 받는다. 수십 초가 걸릴 수 있다
+| 구간 | 무엇이 걸리나 | 무엇으로 덮나 |
+|---|---|---|
+| 1 | 단일 exe 가 `%TEMP%` 로 약 280MB 를 푼다 + 사내 백신 전수 검사 | `portable.splashImage` (NSIS 스텁) |
+| 2 | Electron 부팅 → `whenReady` → 큐·감시 폴더 복원 → `ready-to-show` | 스플래시 **창** (`src/renderer/splash.html`) |
+| 3 | 첫 변환의 JVM 콜드 스타트 | 상태 칩·진행률 바 (build.8 에서 넣음) |
 
-두 경우 모두 앱이 멈춘 것처럼 보이므로, 스플래시와 첫 변환 진행 표시를 명확히 둔다. "처음 실행은 시간이 걸릴 수 있습니다" 안내를 띄운다.
+**구간 1 에서는 우리 JS 가 한 줄도 돌지 않는다.** BrowserWindow 로는 덮을 수 없고,
+NSIS 스텁이 압축을 푸는 동안 띄우는 비트맵이 유일한 수단이다. `build/splash.bmp`
+(460×260, 24비트)가 그것이고, 구간 2 의 창과 크기·문구·색을 맞춰 두 구간이 이어져
+보이게 했다.
+
+> `build/splash.bmp` 는 Pillow 로 한 번 만들어 커밋했다. 글꼴은 Noto Sans KR
+> (400·700), 색은 `tokens.css` 의 `--text-primary`·`--text-secondary`·`--text-muted`·
+> `--accent`·`--border-default`. 다시 만들 일이 생기면 같은 값으로 그리면 된다 —
+> 개발 컨테이너에 한글 글꼴이 없어 생성 스크립트를 저장소에 두지 않았다.
+
+**구간 2 실측** (리눅스 개발 빌드, 프로세스 시작 기준):
+
+| 상황 | 스플래시 | 본체 |
+|---|---|---|
+| 빌드 직후 첫 실행 | — | **1,386ms** |
+| 그 뒤 | 144~168ms | 185~212ms |
+
+더운 상태에서 버는 것은 40ms 라 보이지 않는다. 스플래시 창이 있는 이유는 첫 줄
+하나다 — 사용자의 첫 실행은 언제나 그 1,386ms 쪽 모양이고, 사내 PC 는 백신이 갓
+풀린 파일을 한 장씩 검사하므로 더 길다.
+
+**패키징된 Windows 앱의 구간 2 는 재지 못했다.** 창이 뜬 시점을 프로세스 밖에서
+알 방법이 없어 CI 가 세지 못한다.
+
+구간 3 은 이미 화면에 나와 있다 — 상태 칩, 진행률 바, 경과 시간과 글자 수.
 
 ## 데이터 저장 위치
 

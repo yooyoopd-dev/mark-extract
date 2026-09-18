@@ -8,5 +8,6 @@ const to = join(root, "out/renderer");
 
 mkdirSync(to, { recursive: true });
 cpSync(join(root, "src/renderer/index.html"), join(to, "index.html"));
+cpSync(join(root, "src/renderer/splash.html"), join(to, "splash.html"));
 cpSync(join(root, "src/renderer/styles"), join(to, "styles"), { recursive: true });
-console.log("복사: out/renderer/{index.html, styles/}");
+console.log("복사: out/renderer/{index.html, splash.html, styles/}");

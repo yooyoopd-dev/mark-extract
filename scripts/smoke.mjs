@@ -44,6 +44,7 @@ if (failures.length > 0) {
 }
 
 console.log("스모크 통과");
+console.log("  스플래시: 본체보다 먼저 그려지고 본체가 뜨면 닫힘");
 console.log("  보안 설정: nodeIntegration=false, contextIsolation=true, sandbox=true");
 console.log("  색 토큰: 라이트/다크 계산값이 design/index.html 과 일치");
 console.log("  preload: window.markExtract 표면 확인 (목록·본문·추가·구독·내보내기·감시·설정)");

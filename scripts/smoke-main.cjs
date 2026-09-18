@@ -11,7 +11,7 @@
  *
  * 결과는 JSON 한 줄로 stdout 에 내보낸다. scripts/smoke.mjs 가 읽는다.
  */
-const { app } = require("electron");
+const { app, BrowserWindow } = require("electron");
 
 // 헤드리스(xvfb) 에서는 GPU 합성이 없어 capturePage() 가 UnknownVizError 로 실패한다.
 // 스모크 전용 진입점이므로 여기서만 끈다 — 프로덕션 main 은 건드리지 않는다.
@@ -90,10 +90,32 @@ app.whenReady().then(async () => {
     registerIpc();
     broadcastChanges();
     const win = createMainWindow();
+
+    // 스플래시는 본체가 그려지기까지를 덮는다. 본체보다 먼저 떠야 의미가 있고,
+    // 본체가 뜬 뒤에도 남아 있으면 앱을 가린다.
+    const splash = BrowserWindow.getAllWindows().find((w) => w !== win);
+    if (!splash) failures.push("스플래시 창이 뜨지 않음");
+    else {
+      const shown = await new Promise((resolve) => {
+        if (splash.isDestroyed()) return resolve(false);
+        splash.once("ready-to-show", () => resolve(true));
+        setTimeout(() => resolve(false), 5000);
+      });
+      if (!shown) failures.push("스플래시가 5초 안에 그려지지 않음");
+    }
+
     win.webContents.on("console-message", (event) => {
       if (event.level === "error") consoleErrors.push(String(event.message ?? "").slice(0, 200));
     });
     await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+
+    // did-finish-load 와 ready-to-show 의 선후는 보장되지 않는다. 닫힐 때까지 본다.
+    if (splash) {
+      for (let i = 0; i < 50 && !splash.isDestroyed(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!splash.isDestroyed()) failures.push("본체가 떴는데 스플래시가 남아 있음");
+    }
 
     // 1. 보안 설정 — 소스 grep 이 아니라 실행 중인 webContents 에서 읽는다.
     const prefs = win.webContents.getLastWebPreferences() ?? {};
