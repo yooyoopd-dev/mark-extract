@@ -50,3 +50,12 @@ win:
 # 이 비트맵이 그 구간을 덮는 유일한 수단이다 (docs/design/05-packaging.md#첫-실행).
 portable:
   splashImage: build/splash.bmp
+  # 실행할 때마다 압축을 푸는 시간을 20.5초에서 10.7초로 줄인다 (run 21 실측).
+  #
+  # 기본 경로는 app-64.7z(LZMA)를 exe 에 넣고, 실행 시 Nsis7z 로 임시 폴더에 푼 뒤
+  # CopyFiles 로 한 번 더 옮긴다 — 같은 양을 디스크에 두 번 쓴다. useZip 은 NSIS 의
+  # `File /r` 가지를 태워 zlib 로 목적지에 곧장 풀고, 그 두 번째 복사가 사라진다.
+  #
+  # 맞바꿈은 exe 크기다: 173MB → 264.8MB. 사내 배포는 한 번 받아 계속 쓰는 쪽이라
+  # 내려받기 한 번보다 매 실행 10초가 비싸다 (docs/design/05-packaging.md#첫-실행).
+  useZip: true

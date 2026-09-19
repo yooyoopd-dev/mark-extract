@@ -14,6 +14,7 @@ win:
   artifactName: MarkExtract-${version}.exe
 portable:
   splashImage: build/splash.bmp
+  useZip: true
 ```
 
 JRE 와 JAR 은 **asar 바깥**에 둔다. 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못한다. `asarUnpack` 이 아니라 `extraResources` 를 쓴다 — 이 파일들은 앱 소스 트리 밖(`resources/`)에서 만들어지기 때문이다. 앱의 `resources/` 아래 `jre/`, `lib/` 로 들어가고, 어댑터는 패키징 시 `process.resourcesPath` 를 기준으로 찾는다.
@@ -46,16 +47,20 @@ jdk.crypto.ec     암호가 걸린 PDF
 
 ## 용량
 
-JRE 와 JAR 은 2단계에서 실측했다. exe 압축 크기는 아직 추정치다.
+전부 실측으로 바뀌었다. 추정은 두 자리 모두 빗나갔다.
 
 | 구성 | 크기 |
 |---|---|
-| Electron 런타임 | 약 180MB |
+| Electron 런타임 | 약 180MB (추정) |
 | jlink JRE | **54MB (실측)** — 추정 45MB 였음 |
 | opendataloader JAR | 23.1MB (실측) |
-| kordoc + 앱 코드 | 약 20MB |
-| **합계 (압축 전)** | **약 280MB** |
-| **portable .exe (압축 후)** | **173MB (실측)** — 추정 110~130MB 였음 |
+| kordoc + 앱 코드 | 약 20MB (추정) |
+| **합계 (압축 전)** | **약 660MB (실측)** — 추정 280MB 였음 |
+| **portable .exe** | **264.8MB (실측)** — `useZip` 기준. 추정 110~130MB 였음 |
+
+압축 전 크기는 `compression: store` 로 한 벌 만들어 쟀다(660.7MB). 구성 표의 추정치
+합보다 두 배 이상 큰데, Windows Electron 런타임에 로케일 `.pak` 과 DLL 이 통째로 들어
+있기 때문으로 보인다 — 어느 항목이 얼마인지까지는 가르지 않았다.
 
 줄이고 싶다면 순서대로 검토한다: `jdeps`로 JRE 모듈 더 줄이기 → `--omit=optional`로 이미 빠진 kordoc 네이티브 확인 → Electron 로케일 파일 정리. Electron 자체를 걷어내는(Tauri 등) 선택은 두 파서가 모두 Node 라이브러리라 사이드카 계층을 새로 만들어야 하므로 비용이 크다.
 
@@ -65,7 +70,7 @@ JRE 와 JAR 은 2단계에서 실측했다. exe 압축 크기는 아직 추정�
 
 | 구간 | 무엇이 걸리나 | 무엇으로 덮나 |
 |---|---|---|
-| 1 | 단일 exe 가 `%TEMP%` 로 약 280MB 를 푼다 + 사내 백신 전수 검사 | `portable.splashImage` (NSIS 스텁) |
+| 1 | 단일 exe 가 `%TEMP%` 로 약 660MB 를 푼다 + 사내 백신 전수 검사 | `portable.splashImage` (NSIS 스텁) |
 | 2 | Electron 부팅 → `whenReady` → 큐·감시 폴더 복원 → `ready-to-show` | 스플래시 **창** (`src/renderer/splash.html`) |
 | 3 | 첫 변환의 JVM 콜드 스타트 | 상태 칩·진행률 바 (build.8 에서 넣음) |
 
@@ -83,17 +88,61 @@ NSIS 스텁이 압축을 푸는 동안 띄우는 비트맵이 유일한 수단�
 
 | 실행 | 1회차 | 2회차 |
 |---|---|---|
-| run 18 | 22.4초 | 21.4초 |
-| run 19 | 23.9초 | 19.6초 |
+| run 18 (7z) | 22.4초 | 21.4초 |
+| run 19 (7z) | 23.9초 | 19.6초 |
+| run 21 (7z) | 20.5초 | 17.5초 |
+| **run 21 (`useZip`)** | **10.7초** | **9.4초** |
 
-**두 번째가 빨라지지 않는다.** 4초 안쪽의 흔들림은 있어도, 압축 해제를 건너뛰었다면
-나왔을 한 자릿수 초가 아니다. 압축 해제 결과를 재사용하지 않고 실행할 때마다 다시
-푼다는 뜻이다 — "첫 실행만 느리다"는 사실이 아니고 **매번 20초쯤 걸린다.** 여기에
-사내 백신의 전수 검사가 더해진다.
+**두 번째가 빨라지지 않는다.** 실행할 때마다 다시 푼다 — "첫 실행만 느리다"는 사실이
+아니다. 여기에 사내 백신의 전수 검사가 더해진다.
 
-`portable.unpackDirName` 을 문자열로 주면 `%TEMP%` 아래 고정된 이름에 풀린다.
-재사용까지 되는지는 확인하지 않았고, 된다면 약 280MB 가 `%TEMP%` 에 상주한다.
-쓸지 말지는 그 맞바꿈을 보고 정할 일이라 이번에 켜지 않았다.
+### 캐시는 불가능하다 — `unpackDirName` 은 답이 아니었다
+
+한때 `portable.unpackDirName` 으로 압축 해제를 재사용할 수 있으리라 적어 두었는데
+**틀렸다.** `app-builder-lib/templates/nsis/portable.nsi` 를 읽으면 분명하다.
+
+```nsis
+!ifdef UNPACK_DIR_NAME
+  StrCpy $INSTDIR "$TEMP\${UNPACK_DIR_NAME}"
+!endif
+
+RMDir /r $INSTDIR      ; 풀기 전에 지운다
+SetOutPath $INSTDIR
+...
+ExecWait ...
+RMDir /r $INSTDIR      ; 끝나고 또 지운다
+```
+
+앞뒤로 `RMDir /r` 가 있어 어떤 이름을 주든 재사용은 일어나지 않는다. 이 옵션은
+**어디에 풀지**만 바꾼다.
+
+### 대신 푸는 일 자체를 줄였다 — `portable.useZip`
+
+`NsisTarget.js` 를 보면 portable 이 두 갈래다.
+
+| | 무슨 일이 일어나나 |
+|---|---|
+| 기본 | `packArch()` 가 **app-64.7z**(LZMA)를 exe 에 넣는다. 실행 시 `Nsis7z::Extract` 로 `$PLUGINSDIR\7z-out` 에 푼 뒤 `CopyFiles /SILENT` 로 `$INSTDIR` 에 **한 번 더** 옮긴다 |
+| `useZip: true` | `APP_DIR_64` 가 잡혀 템플릿이 `File /r` 가지를 탄다. NSIS 자체 압축(**zlib**)이고 `$INSTDIR` 로 **곧장** 풀린다 |
+
+기본 경로는 660MB 를 LZMA 로 풀고 디스크에 두 번 쓴다. `useZip` 은 압축을 zlib 로
+바꾸고 두 번째 복사를 없앤다. electron-builder 소스의 주석도 같은 말을 한다 —
+*"zip is faster to decompress"* (`NsisTarget.js:265`).
+
+**후보 셋을 같은 job 에서 재고 골랐다** (run 21):
+
+| 후보 | exe | 1회차 | 2회차 |
+|---|---|---|---|
+| 기본 (7z + CopyFiles) | 173MB | 20.5초 | 17.5초 |
+| **`useZip`** | **264.8MB** | **10.7초** | **9.4초** |
+| `useZip` + `compression: store` | 660.7MB | 13초 | 6.3초 |
+
+`store` 는 2회차만 빠르고 1회차는 오히려 느리며 exe 가 660MB 다. 사내 배포는 한 번
+받아 계속 쓰는 쪽이라 173MB → 264.8MB 는 치를 만한 값이고, 660MB 는 아니다.
+`useZip` 으로 정했다.
+
+각 후보가 빠른 것만 보지 않았다 — 셋 다 `동봉 JRE` 로 `5/5 성공` 을 내는지 함께
+확인했다. 빨라도 안 돌면 소용없다.
 
 **구간 2 실측** (리눅스 개발 빌드, 프로세스 시작 기준):
 
