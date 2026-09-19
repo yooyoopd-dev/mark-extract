@@ -1,0 +1,129 @@
+/* design/index.html 에서 옮긴 것. 값은 바꾸지 않는다.
+ * 디자인 export 가 시각적 계약이므로 (design/README.md) 구현이 원본과 어긋나면
+ * 구현이 틀린 것이다. 원본에 없는 것은 파일 끝에 따로 모아 둔다.
+ */
+
+.app {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr) 28px;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface-app);
+}
+
+/* --- Windows 캡션바 --- */
+.titlebar {
+  display: flex; align-items: stretch;
+  background: var(--surface-sidebar);
+  border-bottom: 1px solid var(--border-default);
+  user-select: none;
+}
+.tb-brand { display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; }
+.tb-mark {
+  width: 18px; height: 18px; border-radius: 5px; flex: none;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; letter-spacing: -.3px;
+}
+.tb-name { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+.tb-menu { display: flex; align-items: stretch; }
+.tb-menu button {
+  padding: 0 10px; font-size: 13px; color: var(--text-secondary); border-radius: 4px; margin: 5px 1px;
+}
+.tb-menu button:hover { background: var(--state-hover); color: var(--text-primary); }
+.tb-drag { flex: 1 1 auto; min-width: 12px; }
+.tb-right { display: flex; align-items: stretch; }
+.tb-tool {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; margin: 5px 2px;
+  border-radius: 5px; font-size: 12px; color: var(--text-secondary);
+}
+.tb-tool:hover { background: var(--state-hover); color: var(--text-primary); }
+.caption { display: flex; align-items: stretch; }
+.caption button { width: 46px; display: grid; place-items: center; color: var(--text-primary); }
+.caption button:hover { background: var(--state-hover); }
+.caption button.close:hover { background: var(--caption-close); color: #fff; }
+.caption svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.1; }
+.nav-toggle { display: none; }
+
+/* --- 워크스페이스 그리드 --- */
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: 248px 336px minmax(0, 1fr) 300px;
+  min-height: 0;
+  background: var(--surface-app);
+}
+.workspace > * { min-width: 0; min-height: 0; }
+
+
+.statusbar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 4px 0 8px; background: var(--surface-sidebar);
+  border-top: 1px solid var(--border-default); font-size: 11.5px; color: var(--text-secondary);
+}
+.sb {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px;
+  border-radius: 4px; color: inherit; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+button.sb:hover { background: var(--state-hover); color: var(--text-primary); }
+.sb .icon { width: 12px; height: 12px; }
+.sb .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--ok-text); }
+.sb .dot.run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.sb-right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.sb-hide { display: inline-flex; }
+
+
+@media (max-width: 1440px) {
+  .workspace { grid-template-columns: 232px 312px minmax(0,1fr) 284px; }
+  .reading { padding: 28px 32px 72px; }
+}
+@media (max-width: 1200px) {
+  .workspace { grid-template-columns: 232px 312px minmax(0,1fr); }
+  .inspector {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 300px; z-index: 30;
+    transform: translateX(102%); box-shadow: -10px 0 30px var(--shadow-dialog);
+  }
+  .app[data-inspector="open"] .inspector { transform: none; }
+  .inspector-open { display: inline-grid; }
+  .insp-close { display: inline-grid; }
+}
+@media (min-width: 1201px) { .insp-close { display: none; } }
+@media (max-width: 1024px) {
+  .workspace { grid-template-columns: 312px minmax(0,1fr); }
+  .sidebar {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 248px; z-index: 30;
+    transform: translateX(-102%); box-shadow: 10px 0 30px var(--shadow-dialog);
+  }
+  .app[data-sidebar="open"] .sidebar { transform: none; }
+  .nav-toggle { display: inline-grid; }
+  .sb-hide { display: none; }
+}
+@media (max-width: 768px) {
+  .workspace { grid-template-columns: minmax(0,1fr); }
+  .listpane, .viewer { display: none; }
+  .app[data-pane="list"] .listpane { display: grid; }
+  .app[data-pane="viewer"] .viewer { display: grid; }
+  .listpane { border-right: 0; }
+  .back-to-list { display: inline-grid; }
+  .sidebar { width: min(248px, 82vw); }
+  .inspector { width: min(300px, 88vw); }
+  .reading { padding: 24px 20px 64px; }
+  .reading-inner { font-size: 16px; }
+  .reading-inner h1 { font-size: 24px; }
+  .tb-menu { display: none; }
+}
+@media (max-width: 520px) {
+  .tb-name { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+/* 원본에 없는 것 — 프레임 없는 창이라 드래그 영역을 지정해야 창을 옮길 수 있다.
+   버튼과 입력은 다시 no-drag 로 되돌린다. */
+.titlebar { -webkit-app-region: drag; }
+.titlebar button,
+.titlebar input,
+.titlebar .tb-menu { -webkit-app-region: no-drag; }

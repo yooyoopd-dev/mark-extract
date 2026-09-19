@@ -1,0 +1,36 @@
+{
+  "name": "mark-extract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "문서를 Markdown으로만 변환하는 Windows 단일 실행 AI Document Parser",
+  "main": "out/main/index.js",
+  "scripts": {
+    "tokens": "node scripts/tokens.mjs",
+    "tokens:check": "node scripts/tokens.mjs --check",
+    "resources": "node scripts/resources.mjs",
+    "jre": "node scripts/jre.mjs",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "build": "npm run tokens:check && tsc -p tsconfig.node.json && tsc -p tsconfig.renderer.json && node scripts/copy-static.mjs",
+    "start": "electron .",
+    "smoke": "node scripts/smoke.mjs",
+    "verify:parsers": "node scripts/verify-parsers.mjs",
+    "verify:queue": "node scripts/verify-queue.mjs",
+    "verify:llm": "node scripts/verify-llm.mjs",
+    "verify:settings": "node scripts/verify-settings.mjs",
+    "verify:ocr": "node scripts/verify-ocr.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings && npm run verify:ocr",
+    "dist:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "@opendataloader/pdf": "^2.5.9",
+    "@types/node": "^24.0.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
+    "jszip": "^3.10.2",
+    "kordoc": "^4.14.0"
+  }
+}
