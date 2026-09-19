@@ -231,6 +231,72 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
+      # ── 한시적 ─────────────────────────────────────────────────────────────
+      # 압축 해제가 매번 20초다. 지금 경로는 app-64.7z 를 LZMA 로 풀어 $PLUGINSDIR
+      # 에 쏟은 뒤 CopyFiles 로 한 번 더 옮긴다 — 280MB 를 두 번 쓴다는 뜻이다.
+      # useZip 은 NSIS 의 File /r 가지를 태워 zlib 로 $INSTDIR 에 곧장 푼다.
+      #
+      # 어느 쪽이 실제로 빠른지는 재야 안다. 후보를 정하면 이 단계는 지운다.
+      - name: 압축 방식 후보 측정 (한시적)
+        shell: pwsh
+        run: |
+          $env:JAVA_HOME = ""
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch '(?i)jdk|jre|\\java' }) -join ';'
+          $verify = (Resolve-Path out/verify).Path
+
+          function Measure-Candidate([string]$tag) {
+            Remove-Item dist/*.exe -Force -ErrorAction SilentlyContinue
+            npm run dist:win 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "$tag 패키징 실패" }
+
+            $exe = (Get-ChildItem dist/*.exe | Select-Object -First 1).FullName
+            $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+
+            $secs = @()
+            foreach ($run in 1, 2) {
+              $log = Join-Path $verify "cand-$tag-$run.txt"
+              Remove-Item $log -ErrorAction SilentlyContinue
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              $p = Start-Process -FilePath $exe -ArgumentList '--self-test', '--self-test-out', $log -PassThru `
+                     -RedirectStandardOutput "$log.out" -RedirectStandardError "$log.err" -WindowStyle Hidden
+              if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "$tag $run 회차가 300초를 넘겼습니다." }
+              $sw.Stop()
+              if ($p.ExitCode -ne 0) { throw "$tag $run 회차 실패 (exit $($p.ExitCode))" }
+              $secs += [math]::Round($sw.Elapsed.TotalSeconds, 1)
+            }
+
+            # 빨라도 안 돌면 소용없다.
+            $text = Get-Content (Join-Path $verify "cand-$tag-1.txt") -Raw
+            if ($text -notmatch '동봉 JRE') { throw "$tag — 동봉 JRE 를 쓰지 않았습니다." }
+            if ($text -notmatch '5/5 성공') { throw "$tag — 다섯 형식을 모두 변환하지 못했습니다." }
+
+            Write-Host ("{0}: exe {1} MB · 1회차 {2}초 · 2회차 {3}초" -f $tag, $mb, $secs[0], $secs[1])
+            return [pscustomobject]@{ Tag = $tag; Mb = $mb; First = $secs[0]; Second = $secs[1] }
+          }
+
+          Copy-Item electron-builder.yml electron-builder.yml.bak
+          try {
+            # A 는 앞 단계가 이미 쟀다. 같은 job 이므로 그 숫자를 그대로 쓴다.
+            Write-Host "A (지금 · 7z + CopyFiles): $(Get-Content out/verify/portable-timing.txt -Raw)"
+
+            # B — portable 블록이 파일 끝이라 이어 붙이면 그 블록에 들어간다.
+            Add-Content electron-builder.yml "  useZip: true"
+            $b = Measure-Candidate "B-useZip"
+
+            # C — 압축을 아예 끈다. 해제가 순수 복사가 된다.
+            Add-Content electron-builder.yml "compression: store"
+            $c = Measure-Candidate "C-useZip-store"
+          } finally {
+            Move-Item -Force electron-builder.yml.bak electron-builder.yml
+          }
+
+          Write-Host ""
+          Write-Host "== 후보 비교 =="
+          Write-Host ("A (지금)          {0}" -f (Get-Content out/verify/portable-timing.txt -Raw).Trim())
+          Write-Host ("B useZip          exe {0} MB · {1}초 / {2}초" -f $b.Mb, $b.First, $b.Second)
+          Write-Host ("C useZip + store  exe {0} MB · {1}초 / {2}초" -f $c.Mb, $c.First, $c.Second)
+
+
   release:
     name: 프리릴리스 게시
     needs: [verify-linux, debug-windows]
