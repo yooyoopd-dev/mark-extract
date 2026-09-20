@@ -14,6 +14,7 @@ import { clearCache, resolveCli } from "./llm/resolve";
 import { providerOf } from "./llm/providers";
 import { listModels } from "./llm/ollama-http";
 import { promptText } from "./llm/prompt";
+import { selfTestReport } from "./self-test";
 import type { CliStatus, DocOptions, ExportRequest, Settings } from "../shared/doc";
 import type { Provider } from "../shared/parse";
 
@@ -23,8 +24,14 @@ const PROVIDERS: readonly Provider[] = ["claude", "gemini", "codex", "ollama"];
 const windowOf = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
   BrowserWindow.fromWebContents(event.sender);
 
-/** 렌더러가 보낸 옵션에서 아는 값만 추린다. */
-function cleanOptions(raw: unknown): DocOptions {
+/**
+ * 렌더러가 보낸 옵션에서 아는 값만 추린다.
+ *
+ * 여기 없는 키는 조용히 사라진다 — 그래서 옵션을 늘릴 때 이 목록을 같이 늘리지
+ * 않으면 화면과 어댑터가 멀쩡한데도 기능이 죽는다 (build.25 의 OCR 토글).
+ * `verify-queue.mjs` 가 이 함수를 직접 부른다.
+ */
+export function cleanOptions(raw: unknown): DocOptions {
   const o = (raw ?? {}) as Record<string, unknown>;
   const options: DocOptions = {};
   const out = options as Record<string, unknown>;
@@ -35,6 +42,12 @@ function cleanOptions(raw: unknown): DocOptions {
     out["imageOutput"] = o["imageOutput"];
   }
   if (typeof o["pages"] === "string" && o["pages"].trim() !== "") out["pages"] = o["pages"].trim();
+
+  // OCR·구조 트리. false 도 실어야 한다 — 빈 값으로 보고 버리면 한 번 켠 옵션을
+  // 끄는 길이 없어진다.
+  if (typeof o["ocr"] === "boolean") out["ocr"] = o["ocr"];
+  if (typeof o["hybridFullPages"] === "boolean") out["hybridFullPages"] = o["hybridFullPages"];
+  if (typeof o["useStructTree"] === "boolean") out["useStructTree"] = o["useStructTree"];
 
   if (o["engine"] === "local" || o["engine"] === "llm") out["engine"] = o["engine"];
   if (PROVIDERS.includes(o["provider"] as Provider)) out["provider"] = o["provider"];
@@ -71,7 +84,9 @@ export function registerIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: [{ name: "문서", extensions: SUPPORTED }],
     });
-    return result.canceled ? { added: 0, skipped: 0, oversized: [] } : queue.add(result.filePaths);
+    return result.canceled
+      ? { added: 0, skipped: 0, oversized: [], unsupported: [] }
+      : queue.add(result.filePaths);
   });
 
   /* 내보내기 -------------------------------------------- */
@@ -148,6 +163,10 @@ export function registerIpc(): void {
     return promptText(inputMode, language);
   });
 
+  // 사내 PC 에서 확인할 수 있는 것을 앱 안에서 돌린다. 명령 프롬프트로도 되지만
+  // 단일 exe 는 stdout 이 호출자에게 닿지 않아 화면에 아무것도 뜨지 않는다.
+  ipcMain.handle("app:self-test", () => selfTestReport());
+
   // 설치된 Ollama 모델. 본문 생성은 CLI 가 하고 이 조회만 루프백 HTTP 다 (결정 15).
   ipcMain.handle("llm:ollamaModels", () => listModels(settings().ollamaUrl));
 
@@ -169,7 +188,9 @@ export function registerIpc(): void {
     for (const key of ["concurrency", "llmTimeoutMin", "maxFileSizeMb"] as const) {
       if (typeof p[key] === "number") clean[key] = p[key] as number;
     }
-    if (typeof p["frontmatter"] === "boolean") clean.frontmatter = p["frontmatter"];
+    for (const key of ["frontmatter", "ocrByDefault"] as const) {
+      if (typeof p[key] === "boolean") clean[key] = p[key] as boolean;
+    }
     for (const key of ["model", "ollamaUrl", "hybridUrl"] as const) {
       if (typeof p[key] === "string") clean[key] = p[key] as string;
     }

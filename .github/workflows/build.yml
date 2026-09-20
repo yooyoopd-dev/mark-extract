@@ -294,6 +294,19 @@ jobs:
             echo "아직 확인되지 않은 것: 실제 OCR 인식 결과, gemini·codex 의 성공 응답 본문,"
             echo "Ollama 실동작. 개발 환경에서 모델·인증에 닿을 수 없어 남겨 두었습니다."
             echo
+            echo "## 문제가 있을 때 — 자체 점검"
+            echo
+            echo "**설정 → 일반 → 자체 점검 실행** 을 누르거나 \`Ctrl+K\` 에서 \"자체 점검\" 을"
+            echo "고르면, 동봉 JRE·문서 5종 변환·LLM CLI·OCR 서버·설정 경로를 확인한 결과가"
+            echo "화면에 나옵니다. **결과 복사** 로 그대로 보내 주시면 원인을 훨씬 빨리 찾습니다."
+            echo
+            echo "명령 프롬프트(cmd)를 쓰신다면 아래도 같은 일을 하고 파일로도 남깁니다."
+            echo "PowerShell 에서는 \`%USERPROFILE%\` 가 펼쳐지지 않으니 \`\$env:USERPROFILE\` 을 쓰세요."
+            echo
+            echo '```'
+            echo "MarkExtract-${version}.exe --self-test --self-test-out %USERPROFILE%\\Desktop\\selftest.txt"
+            echo '```'
+            echo
             echo "## Windows 자체 점검 출력"
             echo
             echo '```'

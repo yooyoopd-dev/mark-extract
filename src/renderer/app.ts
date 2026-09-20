@@ -28,6 +28,7 @@ import {
   type Tab,
 } from "./state.js";
 import type { Settings } from "../shared/doc";
+import type { AddResult } from "../shared/api";
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
@@ -172,11 +173,33 @@ function apply(views: DocView[]): void {
 
 const refresh = async (): Promise<void> => apply(await window.markExtract.list());
 
+/**
+ * 건너뛴 파일을 알린다.
+ *
+ * 숫자만 알려 주던 것을 이름까지 적는다 — build.25 실측에서 DRM 도구가 확장자를
+ * 바꾼 문서가 목록에 들어오지도 않았고, 사용자는 어느 파일인지 알 수 없었다.
+ */
+function reportSkipped({ skipped, unsupported, oversized }: AddResult): void {
+  if (skipped === 0) return;
+
+  const names = unsupported.slice(0, 3).join(", ");
+  const more = unsupported.length > 3 ? ` 외 ${unsupported.length - 3}건` : "";
+  const which = names === "" ? "" : ` — ${names}${more}`;
+  toast(
+    `${skipped}건을 건너뛰었습니다${which}. 지원하지 않는 형식이거나, DRM 도구가 확장자를 바꾼 파일일 수 있습니다.`,
+    "err",
+  );
+
+  for (const file of oversized) {
+    toast(`${file.name} 은 ${file.mb}MB 라 크기 상한을 넘었습니다. 설정에서 상한을 올릴 수 있습니다.`, "err");
+  }
+}
+
 async function addPaths(paths: readonly string[]): Promise<void> {
   if (paths.length === 0) return;
-  const { added, skipped } = await window.markExtract.add(paths);
-  if (skipped > 0) toast(`${skipped}건은 지원하지 않는 형식이라 건너뛰었습니다.`, "err");
-  if (added > 0) state.pane = "viewer";
+  const result = await window.markExtract.add(paths);
+  reportSkipped(result);
+  if (result.added > 0) state.pane = "viewer";
   await refresh();
 }
 
@@ -475,9 +498,9 @@ async function copyMarkdown(): Promise<void> {
 }
 
 async function pickFiles(): Promise<void> {
-  const { added, skipped } = await window.markExtract.pickFiles();
-  if (skipped > 0) toast(`${skipped}건은 지원하지 않는 형식이라 건너뛰었습니다.`, "err");
-  if (added > 0) state.pane = "viewer";
+  const result = await window.markExtract.pickFiles();
+  reportSkipped(result);
+  if (result.added > 0) state.pane = "viewer";
   await refresh();
 }
 
@@ -525,6 +548,19 @@ function bindExport(): void {
   exportForm.addEventListener("submit", (event) => {
     event.preventDefault();
     void runExport();
+  });
+
+  const selfTestOverlay = $("#selfTestOverlay");
+  selfTestOverlay.addEventListener("click", (event) => {
+    if (event.target === selfTestOverlay || (event.target as HTMLElement).closest("[data-close]")) {
+      selfTestOverlay.hidden = true;
+    }
+  });
+  // 사내망 PC 는 로그를 반출할 수 없다. 화면의 것을 그대로 가져갈 수 있어야 한다.
+  $("#selfTestCopy").addEventListener("click", () => {
+    void navigator.clipboard
+      .writeText($("#selfTestOut").textContent ?? "")
+      .then(() => toast("점검 결과를 복사했습니다."));
   });
 }
 
@@ -634,6 +670,25 @@ async function loadHybridStatus(): Promise<void> {
   render();
 }
 
+/**
+ * 자체 점검을 돌려 결과를 띄운다.
+ *
+ * 처음 돌리면 자바가 뜨는 데만 몇 초 걸린다. 그 동안 무엇을 하고 있는지 적어 두지
+ * 않으면 멈춘 것처럼 보인다 (build.8 의 Ollama 와 같은 실수를 하지 않는다).
+ */
+async function runSelfTest(): Promise<void> {
+  const overlay = $("#selfTestOverlay");
+  const out = $("#selfTestOut");
+  out.textContent = "점검하는 중입니다… 처음에는 자바가 뜨느라 몇 초 걸립니다.";
+  overlay.hidden = false;
+
+  try {
+    out.textContent = await window.markExtract.selfTest();
+  } catch (error) {
+    out.textContent = `점검을 마치지 못했습니다: ${(error as Error).message}`;
+  }
+}
+
 /** 값 하나를 바꾼다. 확인 버튼 없이 바로 저장한다. */
 async function saveSetting(key: string, value: unknown): Promise<void> {
   settingsView.settings = await window.markExtract.setSettings({ [key]: value } as Partial<Settings>);
@@ -667,7 +722,7 @@ async function saveSetting(key: string, value: unknown): Promise<void> {
 }
 
 function bindSettings(): void {
-  $("#sbSettings").addEventListener("click", () => void openSettings());
+  $("#tbSettings").addEventListener("click", () => void openSettings());
   $("#settingsClose").addEventListener("click", closeSettings);
   settingsOverlay.addEventListener("click", (event) => {
     if (event.target === settingsOverlay) closeSettings();
@@ -723,6 +778,7 @@ function bindSettings(): void {
         .join("\n\n");
       return void navigator.clipboard.writeText(text).then(() => toast("진단 리포트를 복사했습니다."));
     }
+    if (target.closest("#runSelfTest")) return void runSelfTest();
     if (target.closest("#pickOutputDir")) {
       return void window.markExtract.pickOutputDir().then((dir) => {
         if (dir) void saveSetting("outputDir", dir);
@@ -757,6 +813,7 @@ function showPalette(): void {
     { id: "copy", label: "Markdown 복사", icon: "i-copy", run: () => void copyMarkdown() },
     { id: "export", label: "Markdown 내보내기", icon: "i-down", hint: "Ctrl+E", run: openExport },
     { id: "settings", label: "설정", icon: "i-gear", hint: "Ctrl+,", run: () => void openSettings() },
+    { id: "selfTest", label: "자체 점검", icon: "i-check", run: () => void runSelfTest() },
     {
       id: "reconvert",
       label: "재변환",

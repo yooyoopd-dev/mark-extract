@@ -11,6 +11,8 @@ export interface AddResult {
   readonly skipped: number;
   /** 크기 상한을 넘어 건너뛴 파일. 조용히 사라지면 사용자가 이유를 알 수 없다. */
   readonly oversized: ReadonlyArray<{ name: string; mb: number }>;
+  /** 확장자가 지원 목록에 없어 건너뛴 파일 이름 (DRM 도구가 확장자를 바꾼 경우 포함). */
+  readonly unsupported: ReadonlyArray<string>;
 }
 
 export interface MarkExtractApi {
@@ -60,6 +62,9 @@ export interface MarkExtractApi {
   detectCli(): Promise<CliStatus[]>;
   /** 프롬프트 전문. 실제로 쓰이는 것과 같은 함수에서 만든다 (결정 25) */
   promptText(): Promise<string>;
+
+  /** 자체 점검을 돌리고 결과 전문을 돌려준다. 수십 초 걸릴 수 있다. */
+  selfTest(): Promise<string>;
   ollamaModels(): Promise<{ ok: boolean; models: string[]; detail: string }>;
   /** hybrid OCR 서버가 살아 있는지 (7단계). url 을 주면 그 주소로, 없으면 설정값으로. */
   testHybrid(url?: string): Promise<{ ok: boolean; detail: string; ms: number }>;

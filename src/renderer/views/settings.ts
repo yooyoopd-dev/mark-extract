@@ -301,6 +301,11 @@ function ocrPane(view: SettingsView): string {
         "비워 두면 인스펙터의 OCR 토글이 잠깁니다.",
       )}
 
+      <label class="check">
+        <input type="checkbox" id="ocrByDefault" data-set="ocrByDefault" ${s.ocrByDefault ? "checked" : ""}>
+        <span class="txt"><b>새 PDF 에 OCR 켜 두기</b><span>앞으로 큐에 들어오는 PDF 에만 적용됩니다. 주소가 비어 있으면 켜 두어도 OCR 을 쓰지 않습니다</span></span>
+      </label>
+
       ${
         remote
           ? `<p class="settings-warn">
@@ -372,6 +377,19 @@ function generalPane(view: SettingsView): string {
           ["dark", "다크"],
         ]),
       )}
+    </fieldset>
+
+    <fieldset>
+      <legend>자체 점검</legend>
+      <p class="settings-hint">
+        동봉 JRE 로 문서 다섯 종을 변환해 보고, LLM CLI·OCR 서버·설정 경로를 확인합니다.
+        문제를 알릴 때 이 결과를 복사해 보내 주시면 원인을 훨씬 빨리 찾습니다.
+      </p>
+      <div class="od-row settings-actions">
+        <button type="button" class="btn" id="runSelfTest">
+          ${icon("i-check", "icon icon-sm")}<span>자체 점검 실행</span>
+        </button>
+      </div>
     </fieldset>
 
     <fieldset>

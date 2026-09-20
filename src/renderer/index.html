@@ -61,12 +61,6 @@
       <span class="tb-mark" aria-hidden="true">M</span>
       <span class="tb-name">MarkExtract</span>
     </div>
-    <nav class="tb-menu" aria-label="주 메뉴">
-      <button type="button">파일</button>
-      <button type="button">편집</button>
-      <button type="button">보기</button>
-      <button type="button">도움말</button>
-    </nav>
     <div class="tb-drag"></div>
     <div class="tb-right">
       <button class="tb-tool" id="paletteOpen">
@@ -78,6 +72,7 @@
         <svg class="icon icon-sm" id="themeIcon"><use href="#i-moon"/></svg>
         <span id="themeLabel">다크 모드</span>
       </button>
+      <button class="tb-tool" id="tbSettings"><span>설정</span></button>
       <div class="caption">
         <button type="button" id="capMin" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
         <button type="button" id="capMax" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
@@ -190,7 +185,6 @@
     <span class="sb-right">
       <span class="sb" id="sbTokens"></span>
       <button class="sb" id="sbZoom">110%</button>
-      <button class="sb" id="sbSettings" aria-label="설정"><svg class="icon"><use href="#i-gear"/></svg></button>
     </span>
   </footer>
 </div>
@@ -253,6 +247,24 @@
      원본에 없다 (docs/design/04-ui-spec.md). 원본의 다이얼로그 스타일을 그대로 쓴다.
      내용은 JS 가 채운다 — 값이 설정에서 오고 절이 여럿이라 마크업을 손으로 두면
      화면과 저장값이 어긋나기 쉽다. -->
+<!-- ============== 자체 점검 ==============
+     사내 PC 에서 확인할 수 있는 것을 한 자리에 모아 보여 준다. 명령 프롬프트로도
+     돌릴 수 있지만(--self-test), 단일 exe 는 stdout 이 호출자에게 닿지 않아
+     화면에 아무것도 안 뜬다. 그래서 앱 안에 둔다. -->
+<div class="overlay" id="selfTestOverlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="selfTestTitle">
+    <h2 id="selfTestTitle">자체 점검</h2>
+    <p class="sub">동봉 JRE·시험 자료 변환·LLM CLI·OCR 서버·설정 경로를 확인합니다.</p>
+    <div class="body od-scroll">
+      <pre class="cli-report"><code id="selfTestOut">점검하는 중입니다… 처음에는 자바가 뜨느라 몇 초 걸립니다.</code></pre>
+    </div>
+    <div class="foot">
+      <button type="button" class="btn" id="selfTestCopy">결과 복사</button>
+      <button type="button" class="btn primary" data-close>닫기</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="settingsOverlay" hidden>
   <div class="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <h2 id="settingsTitle">설정</h2>

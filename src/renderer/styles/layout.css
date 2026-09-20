@@ -25,11 +25,6 @@
   display: grid; place-items: center; font-size: 10px; font-weight: 700; letter-spacing: -.3px;
 }
 .tb-name { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
-.tb-menu { display: flex; align-items: stretch; }
-.tb-menu button {
-  padding: 0 10px; font-size: 13px; color: var(--text-secondary); border-radius: 4px; margin: 5px 1px;
-}
-.tb-menu button:hover { background: var(--state-hover); color: var(--text-primary); }
 .tb-drag { flex: 1 1 auto; min-width: 12px; }
 .tb-right { display: flex; align-items: stretch; }
 .tb-tool {
@@ -109,7 +104,6 @@ button.sb:hover { background: var(--state-hover); color: var(--text-primary); }
   .reading { padding: 24px 20px 64px; }
   .reading-inner { font-size: 16px; }
   .reading-inner h1 { font-size: 24px; }
-  .tb-menu { display: none; }
 }
 @media (max-width: 520px) {
   .tb-name { display: none; }
@@ -125,5 +119,4 @@ button.sb:hover { background: var(--state-hover); color: var(--text-primary); }
    버튼과 입력은 다시 no-drag 로 되돌린다. */
 .titlebar { -webkit-app-region: drag; }
 .titlebar button,
-.titlebar input,
-.titlebar .tb-menu { -webkit-app-region: no-drag; }
+.titlebar input { -webkit-app-region: no-drag; }

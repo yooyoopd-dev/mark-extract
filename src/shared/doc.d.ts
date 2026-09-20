@@ -86,6 +86,13 @@ export interface Settings {
    * 받는데, 그러면 **PDF 원본이 그 서버로 나간다** — 설정 화면이 그 사실을 알린다.
    */
   hybridUrl: string;
+  /**
+   * 새 PDF 에 OCR 을 켜 둘지.
+   *
+   * 스캔 문서가 대부분인 곳에서는 문서마다 토글을 켜는 것이 일이다. 주소가 비어
+   * 있으면 어댑터가 `--hybrid` 를 붙이지 않으므로 켜 두어도 해가 없다.
+   */
+  ocrByDefault: boolean;
 }
 
 export interface ExportRequest {

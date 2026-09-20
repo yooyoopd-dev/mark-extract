@@ -85,6 +85,8 @@ function defaultOptions(): DocOptions {
     engine: s.defaultEngine,
     imageOutput: s.imageOutput,
     timeoutMs: s.llmTimeoutMin * 60_000,
+    // PDF 가 아니면 어댑터가 보지 않고, 주소가 비어 있으면 --hybrid 를 붙이지 않는다.
+    ocr: s.ocrByDefault,
   };
   if (s.defaultEngine !== "llm") return options;
 
@@ -145,7 +147,11 @@ async function expand(path: string, depth = 0): Promise<string[]> {
     return [];
   }
 
-  if (info.isFile()) return kindOf(path) ? [path] : [];
+  if (info.isFile()) {
+    if (kindOf(path)) return [path];
+    unsupported.push(basename(path));
+    return [];
+  }
   if (!info.isDirectory() || depth >= MAX_DEPTH) return [];
 
   const found: string[] = [];
@@ -161,15 +167,24 @@ export interface AddResult {
   readonly skipped: number;
   /** 크기 상한을 넘어 건너뛴 파일. 조용히 사라지면 사용자가 이유를 알 수 없다. */
   readonly oversized: ReadonlyArray<{ name: string; mb: number }>;
+  /**
+   * 확장자가 지원 목록에 없어 건너뛴 파일 이름.
+   *
+   * build.25 실측: 사내 DRM 도구가 확장자를 바꿔 놓으면 파일이 목록에 들어오지도
+   * 않는다. 숫자만 알려 주면 사용자는 어느 파일인지 알 수 없다.
+   */
+  readonly unsupported: ReadonlyArray<string>;
 }
 
-/** addFile 이 채우고 add 가 비운다. 한 번의 add 호출 안에서만 산다. */
+/** addFile·expand 가 채우고 add 가 비운다. 한 번의 add 호출 안에서만 산다. */
 const oversized: Array<{ name: string; mb: number }> = [];
+const unsupported: string[] = [];
 
 export async function add(paths: readonly string[]): Promise<AddResult> {
   let added = 0;
   let skipped = 0;
   oversized.length = 0;
+  unsupported.length = 0;
 
   for (const path of paths) {
     const files = await expand(path);
@@ -184,7 +199,7 @@ export async function add(paths: readonly string[]): Promise<AddResult> {
 
   emit();
   pump();
-  return { added, skipped, oversized: [...oversized] };
+  return { added, skipped, oversized: [...oversized], unsupported: [...unsupported] };
 }
 
 export function remove(id: string): void {

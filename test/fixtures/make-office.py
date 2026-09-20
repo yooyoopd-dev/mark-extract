@@ -173,6 +173,12 @@ def table_docx_file():
     # 별개인 디코드 경로를 지나간다. 표 안에만 두면 xmldom 이 파싱하며 풀어 버려서
     # 디코드가 빠져도 검증이 통과한다.
     d.add_paragraph("표 밖 특수문자: 꺾쇠 <태그> · 앰퍼샌드 & · 부등호 5 < 10 이다.")
+
+    # build.25 실측. kordoc 의 escapeGfm 이 * _ ~ ` 를 전부 이스케이프해서, Word 에서
+    # "* " 로 시작한 줄이 "\* " 로 나왔다. 원문에 없던 역슬래시가 사용자에게 보인다.
+    d.add_heading("3. 마크다운 기호로 시작하는 줄", level=2)
+    d.add_paragraph("* 별표로 시작하는 줄이다. Word 에서 손으로 찍은 기호다.")
+    d.add_paragraph("한 줄 안에 밑줄 _강조_ 와 물결 ~취소~ 와 백틱 `코드` 가 섞여 있다.")
     d.save(HERE / "sample-table.docx")
 
 

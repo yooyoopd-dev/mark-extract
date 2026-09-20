@@ -27,12 +27,21 @@ mkdirSync(userData, { recursive: true });
 
 // 어댑터는 app.isPackaged 로 경로를 고르고, 설정은 app.getPath("userData") 에
 // 저장한다. 실제 홈 디렉터리를 건드리지 않도록 임시 폴더로 돌려 준다.
+// ipc.js 는 electron 에서 ipcMain·BrowserWindow 도 꺼내 쓴다. 채널을 등록하지는
+// 않고 cleanOptions 만 부르므로 껍데기로 충분하다.
 require.cache[require.resolve("electron")] = {
-  exports: { app: { isPackaged: false, getPath: () => userData } },
+  exports: {
+    app: { isPackaged: false, getPath: () => userData },
+    ipcMain: { handle: () => {} },
+    BrowserWindow: { fromWebContents: () => null, getAllWindows: () => [] },
+    dialog: {},
+    shell: {},
+  },
 };
 
 const queue = require(join(root, "out/main/queue.js"));
 const watch = require(join(root, "out/main/watch.js"));
+const { cleanOptions } = require(join(root, "out/main/ipc.js"));
 
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -90,7 +99,18 @@ try {
   writeFileSync(join(dropDir, "보고서.hwp"), "HWP 는 지원하지 않는다", "utf8");
   writeFileSync(join(dropDir, ".숨김.docx"), "숨김 파일", "utf8");
 
-  await queue.add([dropDir]);
+  // DRM 도구가 확장자를 바꿔 놓은 파일을 흉내 낸다. 확장자만 보고 거르므로 이런
+  // 파일은 목록에 들어오지도 않는다 — 사용자가 이유를 알 수 있어야 한다 (build.25).
+  writeFileSync(join(dropDir, "사내 보고서.dcm"), "DRM 으로 감싼 문서", "utf8");
+
+  const dropped = await queue.add([dropDir]);
+  check(
+    "건너뛴 파일 이름을 알려 준다",
+    dropped.unsupported.includes("사내 보고서.dcm") && dropped.unsupported.includes("보고서.hwp"),
+    dropped.unsupported.join(", "),
+  );
+  check("숨김 파일은 이름에도 올리지 않는다", !dropped.unsupported.some((n) => n.startsWith(".")));
+
   const names = queue.list().map((d) => d.name).sort();
   check("폴더 안의 지원 포맷만 큐에 들어간다", names.join(",") === "sample-ko.docx,sample-ko.pptx", names.join(","));
   check("하위 폴더까지 훑는다", names.includes("sample-ko.pptx"));
@@ -150,6 +170,48 @@ try {
   check("머리글·바닥글 옵션이 어댑터까지 간다", args.includes("--include-header-footer"), args);
   check("표 감지 옵션이 어댑터까지 간다", args.includes("--table-method cluster"), args);
   check("본문은 그대로 다시 나온다", queue.markdownOf(pdf.id).length > 0 && plain.length > 0);
+
+  // 설정의 기본값이 새 문서에 실제로 심기는지 (build.25 요청). 이미 큐에 있는
+  // 문서는 건드리지 않는다 — 사용자가 인스펙터에서 손댄 값이 날아가면 안 된다.
+  const { updateSettings } = require(join(root, "out/main/settings.js"));
+  updateSettings({ ocrByDefault: true });
+  const before = byName("sample-ko.pdf")?.options.ocr;
+  await queue.add([fixture("sample-ko.pptx")]);
+  check("설정을 켜면 새 문서에 OCR 이 심긴다", byName("sample-ko.pptx")?.options.ocr === true);
+  check("이미 있던 문서는 그대로다", byName("sample-ko.pdf")?.options.ocr === before);
+  updateSettings({ ocrByDefault: false });
+  check("설정을 끄면 다시 꺼진 채로 들어온다", await (async () => {
+    for (const d of queue.list()) if (d.name === "sample-ko.pptx") queue.remove(d.id);
+    await queue.add([fixture("sample-ko.pptx")]);
+    return byName("sample-ko.pptx")?.options.ocr === false;
+  })());
+
+  /* ── 3b. IPC 경계가 옵션을 버리지 않는다 ──────────────── */
+  //
+  // build.25 에서 OCR·구조 트리 토글이 재변환을 누르는 순간 다시 꺼졌다. 원인은
+  // 어댑터도 렌더러도 아니라 ipc.ts 의 허용 목록에 세 키가 없던 것이었다. 그때까지
+  // 이 구간을 지나는 검사가 하나도 없었다 — verify-ocr 은 어댑터 함수에 옵션을
+  // 손으로 먹이고, 위의 재변환 검사는 마침 목록에 있는 키만 골라 썼다.
+  console.log("\nIPC 옵션 왕복");
+
+  const through = cleanOptions({ ocr: true, hybridFullPages: true, useStructTree: true });
+  check("OCR 이 IPC 를 지난다", through.ocr === true, JSON.stringify(through));
+  check("전수 보내기가 IPC 를 지난다", through.hybridFullPages === true, JSON.stringify(through));
+  check("구조 트리가 IPC 를 지난다", through.useStructTree === true, JSON.stringify(through));
+
+  // 끄는 길도 있어야 한다. false 를 빈 값으로 보고 버리면 한 번 켠 옵션을 끌 수 없다.
+  const off = cleanOptions({ ocr: false, useStructTree: false });
+  check("끈 값도 그대로 지난다", off.ocr === false && off.useStructTree === false, JSON.stringify(off));
+
+  check("모르는 키는 여전히 버린다", cleanOptions({ 이상한키: 1 })["이상한키"] === undefined);
+
+  // 렌더러가 보내는 모양 그대로 넣어 어댑터 명령줄까지 확인한다. OCR 대신 구조
+  // 트리를 쓰는 이유는 서버 없이도 끝까지 도는 경로이기 때문이다.
+  queue.reconvert(pdf.id, cleanOptions({ useStructTree: true }));
+  check("구조 트리 재변환이 끝난다", await until(() => byName("sample-ko.pdf")?.status === "done"));
+  check("구조 트리가 문서에 저장된다", byName("sample-ko.pdf")?.options.useStructTree === true);
+  const stArgs = argsOf("sample-ko.pdf");
+  check("구조 트리가 어댑터까지 간다", stArgs.includes("--use-struct-tree"), stArgs);
 
   /* ── 4. 한 건이 실패해도 큐가 멈추지 않는다 ───────────── */
   console.log("\n실패 격리");

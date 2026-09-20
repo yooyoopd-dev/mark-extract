@@ -45,6 +45,22 @@ const FAILURE: Record<string, { message: string; actions: RetryAction[] }> = {
   EMPTY_INPUT: { message: "빈 파일입니다.", actions: [] },
 };
 
+/**
+ * kordoc 이 붙인 역슬래시를 뗀다.
+ *
+ * kordoc 의 `escapeGfm` 이 본문 어디에 있든 `*` `_` `~` `` ` `` 를 전부 이스케이프한다.
+ * 그래서 Word 에서 `* 항목` 으로 시작한 줄이 `\* 항목` 으로 나온다 (build.25 실측).
+ * 사용자가 보는 것은 원문에 없던 역슬래시라 그것이 더 틀리다.
+ *
+ * 맞바꿈: 원문에 진짜로 `*강조*` 모양이 있으면 이제 뷰어에서 기울임으로 보인다.
+ * 원문 글자를 그대로 두는 쪽을 골랐다.
+ *
+ * 표의 `\|` 는 건드리지 않는다 — 그것은 우리가 파이프 표를 위해 일부러 넣는다.
+ */
+function unescapeGfm(markdown: string): string {
+  return markdown.replace(/\\([*_~`])/g, "$1");
+}
+
 export async function parseOffice(request: ParseRequest, format: OfficeFormat): Promise<ParseResult> {
   const started = Date.now();
   const engine = ENGINE[format];
@@ -88,7 +104,7 @@ export async function parseOffice(request: ParseRequest, format: OfficeFormat): 
       .map((w) => ({ code: w.code, message: w.message, ...(w.page === undefined ? {} : { page: w.page }) }));
 
     // kordoc 은 병합 셀이나 복합 셀 내용이 있는 표를 <table> 로 낸다.
-    const cleaned = cleanHtmlInMarkdown(result.markdown);
+    const cleaned = cleanHtmlInMarkdown(unescapeGfm(result.markdown));
     warnings.push(...cleaned.warnings);
     const markdown = normalizeMarkdown(cleaned.markdown);
 

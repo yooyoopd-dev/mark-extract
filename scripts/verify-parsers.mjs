@@ -61,6 +61,32 @@ try {
   const misnamed = join(scratch, "실제로는-docx.pdf");
   copyFileSync(fixture("sample-ko.docx"), misnamed);
   check("확장자가 .pdf 여도 내용이 docx 면 docx", (await detectFormat(misnamed)) === "docx");
+
+  // 암호·DRM 으로 감싼 문서 (build.25 실측). OLE2 컨테이너 안에 문서가 들어 있는
+  // 모양이라 예전에는 전부 "unknown" 으로 떨어져 "HWP 계열은 지원하지 않습니다"
+  // 라는 엉뚱한 문구를 보여 주었다.
+  const OLE2 = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  const encrypted = join(scratch, "보호된 문서.docx");
+  writeFileSync(
+    encrypted,
+    Buffer.concat([OLE2, Buffer.alloc(512), Buffer.from("EncryptedPackage", "utf16le")]),
+  );
+  check("OLE2 + EncryptedPackage → protected", (await detectFormat(encrypted)) === "protected");
+
+  // 스트림 이름을 못 찾아도 확장자 조합만으로 판정한다. OOXML 은 ZIP 이어야 하므로
+  // .docx 인데 OLE2 면 껍데기가 한 겹 더 있다는 뜻이다.
+  const wrapped = join(scratch, "확장자만 docx.docx");
+  writeFileSync(wrapped, Buffer.concat([OLE2, Buffer.alloc(2048)]));
+  check("OLE2 + .docx 확장자 → protected", (await detectFormat(wrapped)) === "protected");
+
+  const result = await convert({ filePath: encrypted });
+  check("보호된 문서는 DRM_PROTECTED 로 실패한다", result.error?.code === "DRM_PROTECTED", result.error?.code);
+  check(
+    "안내가 DRM 해제를 말한다",
+    (result.error?.message ?? "").includes("DRM 을 해제한 사본"),
+    result.error?.message,
+  );
+  check("HWP 얘기를 하지 않는다", !(result.error?.message ?? "").includes("HWP"), result.error?.message);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
@@ -95,6 +121,13 @@ const TABLE_CHECKS = [
   ["앰퍼샌드가 원래 글자로 돌아온다", (md) => md.includes("앰퍼샌드 & 를")],
   ["표 밖에는 <br> 이 없다", (md) => !/<br\s*\/?>/i.test(md.split("\n").filter((l) => !l.trimStart().startsWith("|")).join("\n"))],
   ["병합을 폈다는 경고가 붙는다", (md, result) => result.warnings.some((w) => w.code === "TABLE_MERGE_FLATTENED")],
+  // build.25 실측. kordoc 의 escapeGfm 이 * _ ~ ` 를 전부 이스케이프해서 원문에 없던
+  // 역슬래시가 사용자에게 보였다. 두 엔진에 같은 자료를 넣어 함께 본다 —
+  // opendataloader 는 애초에 이스케이프하지 않는다(실측).
+  ["별표로 시작한 줄에 역슬래시가 없다", (md) => md.includes("\n* 별표로 시작하는 줄")],
+  ["밑줄·물결·백틱도 원래 글자다", (md) => md.includes("밑줄 _강조_ 와 물결 ~취소~ 와 백틱 `코드`")],
+  // 표의 파이프는 우리가 일부러 넣는 것이라 남아 있어야 한다 (위 검사와 한 쌍).
+  ["역슬래시를 떼도 표는 그대로다", (md) => md.includes("파이프 \\| 와")],
 ];
 
 const CASES = [

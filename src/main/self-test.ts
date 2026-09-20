@@ -20,7 +20,8 @@
  */
 import { app } from "electron";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { convert } from "./convert";
 import { probe, resolveJar, resolveJava } from "./parsers/pdf-opendataloader";
 import { testHybrid } from "./hybrid-http";
@@ -43,6 +44,12 @@ export function selfTestOutPath(argv: readonly string[]): string | undefined {
   return next !== undefined && !next.startsWith("--") ? next : undefined;
 }
 
+/** 함께 넣어 둔 시험 자료. 없으면 빈 배열. */
+function bundledTargets(): string[] {
+  const dir = fixturesDir();
+  return SAMPLES.map((name) => join(dir, name)).filter((p) => existsSync(p));
+}
+
 export function selfTestTargets(argv: readonly string[]): string[] | null {
   const at = argv.indexOf("--self-test");
   if (at === -1) return null;
@@ -50,8 +57,7 @@ export function selfTestTargets(argv: readonly string[]): string[] | null {
   const next = argv[at + 1];
   if (next !== undefined && !next.startsWith("--")) return [next];
 
-  const dir = fixturesDir();
-  return SAMPLES.map((name) => join(dir, name)).filter((p) => existsSync(p));
+  return bundledTargets();
 }
 
 type Out = (label: string, value: string) => void;
@@ -96,12 +102,15 @@ async function environment(out: Out): Promise<void> {
   out("OCR 서버", hybrid.ok ? `정상 (${url}, ${hybrid.ms}ms)` : `닿지 않습니다 (${url}) — ${hybrid.detail}`);
 }
 
-export async function runSelfTest(targets: readonly string[], outFile?: string): Promise<number> {
-  const lines: string[] = [];
-  const say = (text: string): void => {
-    lines.push(text);
-    console.log(text);
-  };
+/**
+ * 점검을 돌면서 줄을 쌓는다. 종료 코드를 돌려준다.
+ *
+ * 결과를 남기는 일은 호출자가 한다 — build.25 에서 이 함수가 엔진 확인 실패로
+ * 일찍 빠져나가면 `--self-test-out` 파일이 **아예 만들어지지 않았다.** 이유는
+ * stdout 으로만 나갔고 단일 exe 의 stdout 은 호출자에게 닿지 않는다. 가장 알고
+ * 싶은 실패일수록 흔적이 남지 않던 셈이다.
+ */
+async function collect(targets: readonly string[], say: (text: string) => void): Promise<number> {
   const out = (label: string, value: string) => say(`${label.padEnd(12)} ${value}`);
 
   out("플랫폼", `${process.platform} ${process.arch}`);
@@ -147,14 +156,50 @@ export async function runSelfTest(targets: readonly string[], outFile?: string):
   }
 
   say(`\n${targets.length - failed}/${targets.length} 성공`);
+  return failed === 0 ? 0 : 1;
+}
 
-  if (outFile !== undefined) {
-    // 여기서 실패해도 점검 결과를 뒤집지 않는다. 종료 코드는 변환 결과의 것이다.
+/**
+ * 결과를 파일로 남긴다.
+ *
+ * 준 경로에 먼저 쓰고, 실패하면 %TEMP% 의 고정 이름으로 떨어뜨린다. 디렉터리가
+ * 없으면 만든다 — 바탕 화면이 OneDrive 로 옮겨간 PC 에서 `%USERPROFILE%\Desktop`
+ * 이 없을 수 있다. 어느 쪽도 못 쓰면 그것까지 화면에 적는다.
+ */
+function writeReport(text: string, outFile?: string): void {
+  const fallback = join(tmpdir(), "markextract-selftest.txt");
+  const targets = outFile === undefined ? [fallback] : [outFile, fallback];
+
+  for (const target of targets) {
     try {
-      writeFileSync(outFile, `${lines.join("\n")}\n`, "utf8");
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, `${text}\n`, "utf8");
+      console.log(`결과를 남겼습니다: ${target}`);
+      return;
     } catch (error) {
-      console.error(`출력 파일을 쓰지 못했습니다: ${(error as Error).message}`);
+      console.error(`${target} 에 쓰지 못했습니다: ${(error as Error).message}`);
     }
   }
-  return failed === 0 ? 0 : 1;
+}
+
+/** 명령줄 경로. 어디서 끝나든 결과를 남긴다. */
+export async function runSelfTest(targets: readonly string[], outFile?: string): Promise<number> {
+  const lines: string[] = [];
+  const say = (text: string): void => {
+    lines.push(text);
+    console.log(text);
+  };
+
+  // 점검이 도중에 실패해도 그때까지의 줄은 남긴다. 파일 쓰기 실패가 종료 코드를
+  // 뒤집지는 않는다 — 종료 코드는 변환 결과의 것이다.
+  const code = await collect(targets, say);
+  writeReport(lines.join("\n"), outFile);
+  return code;
+}
+
+/** 앱 안에서 부르는 경로. 화면에 그대로 띄운다. */
+export async function selfTestReport(): Promise<string> {
+  const lines: string[] = [];
+  await collect(bundledTargets(), (text) => lines.push(text));
+  return lines.join("\n");
 }

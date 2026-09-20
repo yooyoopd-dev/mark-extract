@@ -70,7 +70,11 @@ try {
   check("제한 시간 0 은 최소 1분으로", updateSettings({ llmTimeoutMin: 0 }).llmTimeoutMin === 1);
   check("모르는 열거값은 기본값으로", updateSettings({ provider: "없는것" }).provider === "claude");
   check("빈 Ollama 주소는 기본값으로", updateSettings({ ollamaUrl: "  " }).ollamaUrl.includes("11434"));
-  updateSettings({ concurrency: 1, llmTimeoutMin: 30, provider: "claude" });
+  // build.25 요청. 스캔 문서가 대부분인 곳에서는 문서마다 토글을 켜는 것이 일이다.
+  check("기본은 꺼짐", settings().ocrByDefault === false);
+  check("켜면 저장된다", updateSettings({ ocrByDefault: true }).ocrByDefault === true);
+  check("이상한 값은 기본값으로", updateSettings({ ocrByDefault: "네" }).ocrByDefault === false);
+  updateSettings({ concurrency: 1, llmTimeoutMin: 30, provider: "claude", ocrByDefault: false });
 
   /* ── 2. 진단 리포트 ────────────────────────────────── */
   console.log("\nCLI 탐지 리포트");

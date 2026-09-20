@@ -266,6 +266,66 @@ app.whenReady().then(async () => {
       if (ocr.structDisabled) failures.push("PDF 인데 구조 트리 토글이 잠겨 있습니다");
     }
 
+    // 2-c. 토글을 실제로 켜고 재변환한다 (build.25 결함).
+    //
+    //      잠겨 있는지만 보던 것이 이 결함을 놓쳤다 — 켠 값이 IPC 허용 목록에서
+    //      버려져, 재변환을 누르는 순간 토글이 도로 꺼지고 어댑터도 인자를 받지
+    //      못했다. OCR 대신 구조 트리로 보는 이유는 서버 없이 끝까지 도는
+    //      경로이기 때문이고, 두 옵션은 같은 목록을 지난다.
+    const toggled = await win.webContents.executeJavaScript(`(() => {
+      const sw = document.querySelector('.inspector [data-opt="useStructTree"]');
+      if (!sw) return Promise.resolve({ error: "구조 트리 토글이 없습니다" });
+      sw.click();
+      const run = document.querySelector("#inspReconvert");
+      if (!run) return Promise.resolve({ error: "재변환 버튼이 없습니다" });
+      run.click();
+
+      const deadline = Date.now() + 20000;
+      return new Promise((resolve) => {
+        const tick = async () => {
+          const docs = await window.markExtract.list();
+          const doc = docs.find((d) => d.name === "sample-ko.pdf");
+          if (doc && doc.status === "done") {
+            const sw2 = document.querySelector('.inspector [data-opt="useStructTree"]');
+            resolve({
+              saved: doc.options.useStructTree === true,
+              args: (doc.result?.log ?? []).find((e) => e.label === "인자")?.value ?? "",
+              stillOn: sw2 ? sw2.getAttribute("aria-checked") === "true" : false,
+            });
+            return;
+          }
+          if (Date.now() > deadline) return resolve({ error: "재변환이 끝나지 않았습니다" });
+          setTimeout(tick, 200);
+        };
+        tick();
+      });
+    })()`);
+
+    if (toggled.error) failures.push(toggled.error);
+    else {
+      if (!toggled.saved) failures.push("켠 옵션이 문서에 저장되지 않았습니다 (IPC 가 버렸습니다)");
+      if (!toggled.args.includes("--use-struct-tree")) {
+        failures.push(`켠 옵션이 어댑터까지 가지 않았습니다 — ${toggled.args}`);
+      }
+      if (!toggled.stillOn) failures.push("재변환 뒤에 토글이 도로 꺼졌습니다");
+    }
+
+    // 2-d. 캡션바 정리 (build.25 요청). 아무 일도 하지 않던 주 메뉴를 지우고,
+    //      설정을 우측 상단으로 옮겼다.
+    const chrome = await win.webContents.executeJavaScript(`(() => ({
+      menu: document.querySelectorAll(".tb-menu").length,
+      gear: document.querySelectorAll("#sbSettings").length,
+      settings: !!document.querySelector("#tbSettings"),
+      label: (document.querySelector("#tbSettings")?.textContent ?? "").trim(),
+      icons: document.querySelectorAll("#tbSettings svg").length,
+    }))()`);
+
+    if (chrome.menu !== 0) failures.push("캡션바에 주 메뉴가 남아 있습니다");
+    if (chrome.gear !== 0) failures.push("상태바에 설정 톱니가 남아 있습니다");
+    if (!chrome.settings) failures.push("캡션바에 설정 버튼이 없습니다");
+    if (chrome.label !== "설정") failures.push(`설정 버튼 문구가 다릅니다: ${chrome.label}`);
+    if (chrome.icons !== 0) failures.push("설정 버튼에 아이콘이 붙어 있습니다");
+
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을
     //    볼 방법이 사라진다.

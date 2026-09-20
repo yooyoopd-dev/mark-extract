@@ -12,20 +12,37 @@ import { parseOffice } from "./parsers/office-kordoc";
 import { parsePptx } from "./parsers/pptx";
 import type { ParseRequest, ParseResult } from "../shared/parse";
 
-function unsupported(detail: string): ParseResult {
+function failure(detail: string, code: string, message: string): ParseResult {
   return {
     ok: false,
     markdown: "",
     warnings: [],
     log: [{ label: "형식", value: detail }],
     meta: { engine: "-", elapsedMs: 0 },
-    error: {
-      code: "UNSUPPORTED_FORMAT",
-      message: "PDF · DOCX · XLSX · XLS · PPTX 만 변환합니다. HWP 계열은 지원하지 않습니다.",
-      actions: [],
-    },
+    error: { code, message, actions: [] },
   };
 }
+
+const unsupported = (detail: string): ParseResult =>
+  failure(
+    detail,
+    "UNSUPPORTED_FORMAT",
+    "PDF · DOCX · XLSX · XLS · PPTX 만 변환합니다. HWP 계열은 지원하지 않습니다.",
+  );
+
+/**
+ * 암호·DRM 으로 감싼 문서.
+ *
+ * build.25 실측에서 드러났다. 사내 문서는 DRM 이 기본이라 이 경로가 흔한데,
+ * 그때까지는 "HWP 계열은 지원하지 않습니다" 라는 엉뚱한 문구를 보여 주고 있었다.
+ * 앱이 DRM 을 풀 수는 없으므로 무엇을 해야 하는지만 정확히 말한다.
+ */
+const protectedDoc = (detail: string): ParseResult =>
+  failure(
+    detail,
+    "DRM_PROTECTED",
+    "암호 또는 DRM 으로 보호된 문서로 보입니다. DRM 을 해제한 사본으로 다시 시도해 주세요.",
+  );
 
 /** 형식을 보고 로컬 어댑터를 고른다. LLM 경로의 모드 B 1단계도 이것을 쓴다. */
 async function convertLocally(request: ParseRequest): Promise<ParseResult> {
@@ -40,6 +57,8 @@ async function convertLocally(request: ParseRequest): Promise<ParseResult> {
       return parseOffice(request, format);
     case "pptx":
       return parsePptx(request);
+    case "protected":
+      return protectedDoc("암호·DRM 컨테이너 (OLE2 안에 문서가 들어 있다)");
     default:
       return unsupported("알 수 없음 (매직 바이트로 판별 실패)");
   }

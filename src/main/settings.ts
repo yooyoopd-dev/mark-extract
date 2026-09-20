@@ -26,6 +26,7 @@ const DEFAULTS: Settings = {
   maxFileSizeMb: 500,
   ollamaUrl: "http://127.0.0.1:11434",
   hybridUrl: "http://127.0.0.1:5002",
+  ocrByDefault: false,
 };
 
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
@@ -65,6 +66,7 @@ function normalize(raw: Settings): Settings {
       : DEFAULTS.ollamaUrl,
     // 빈 문자열을 기본값으로 되돌리지 않는다 — "OCR 안 씀" 이 정당한 상태다.
     hybridUrl: typeof raw.hybridUrl === "string" ? raw.hybridUrl.trim() : DEFAULTS.hybridUrl,
+    ocrByDefault: typeof raw.ocrByDefault === "boolean" ? raw.ocrByDefault : DEFAULTS.ocrByDefault,
   };
 }
 
