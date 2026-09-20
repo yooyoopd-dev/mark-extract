@@ -113,10 +113,17 @@ jobs:
           Remove-Item dist/MarkExtract -Recurse -Force -ErrorAction SilentlyContinue
           Move-Item dist/win-unpacked dist/MarkExtract
 
+          # 7z 는 **준 경로 그대로** 저장한다. `7z a zip dist/MarkExtract` 로 말면 zip
+          # 안이 dist/MarkExtract/... 가 되어 푼 사람이 dist 폴더를 보게 된다
+          # (run 27 실측). dist 안에서 폴더 이름만 주고 만다.
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $zip = "dist/MarkExtract-$version-win-x64.zip"
-          7z a -tzip -mx=5 -bso0 -bsp0 $zip dist/MarkExtract
-          if ($LASTEXITCODE -ne 0) { throw "zip 을 만들지 못했습니다 (7z exit $LASTEXITCODE)" }
+          $name = "MarkExtract-$version-win-x64.zip"
+          Push-Location dist
+          7z a -tzip -mx=5 -bso0 -bsp0 $name MarkExtract
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "zip 을 만들지 못했습니다 (7z exit $code)" }
+          $zip = "dist/$name"
 
           $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           Write-Host "zip: $zip ($mb MB)"
