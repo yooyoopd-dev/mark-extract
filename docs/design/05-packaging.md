@@ -2,24 +2,44 @@
 
 ## 목표
 
-**Windows에서 .exe 파일 하나.** 설치 과정 없이, Java나 Node가 깔려 있지 않은 PC에서도 실행된다.
+**Windows에서 폴더 하나.** zip 을 풀면 바로 쓰고, 설치 과정이 없으며, Java 나 Node 가
+깔려 있지 않은 PC 에서도 실행된다.
 
 ## 빌드
 
-electron-builder `portable` 타깃. 자기 압축 해제 실행 파일 하나가 나온다.
+electron-builder 는 `dir` 로만 만들고, **CI 가 그 폴더를 zip 으로 만다.**
 
 ```
 win:
-  target: [{ target: portable, arch: [x64] }]
-  artifactName: MarkExtract-${version}.exe
-portable:
-  splashImage: build/splash.bmp
-  useZip: true
+  target: [{ target: dir, arch: [x64] }]
 ```
+
+```
+dist/win-unpacked  →  dist/MarkExtract  →  dist/MarkExtract-<version>-win-x64.zip
+```
+
+electron-builder 의 `zip` 타깃을 쓰지 않는 이유는 **최상위 폴더 없이 말기** 때문이다.
+바탕 화면에 바로 푸는 사람이 파일 수백 개를 뒤집어쓴다. 폴더 이름(`MarkExtract`)은
+CI 가 붙이고, 뒤따르는 점검들도 그 폴더를 본다 — 푼 사람이 보게 될 것과 같은 배치다.
 
 JRE 와 JAR 은 **asar 바깥**에 둔다. 자바는 asar 가상 파일 시스템 안의 파일을 실행하거나 읽지 못한다. `asarUnpack` 이 아니라 `extraResources` 를 쓴다 — 이 파일들은 앱 소스 트리 밖(`resources/`)에서 만들어지기 때문이다. 앱의 `resources/` 아래 `jre/`, `lib/` 로 들어가고, 어댑터는 패키징 시 `process.resourcesPath` 를 기준으로 찾는다.
 
 `--self-test` 를 인자 없이 돌릴 수 있게 한글 시험 자료(135KB)도 함께 넣는다.
+
+### portable(자기 압축 해제 exe)을 그만뒀다 (build.27)
+
+build.26 까지는 `portable` 타깃이었다. **실행할 때마다** 660MB 를 `%TEMP%` 에 풀고
+끝나면 지우는 방식이라, 그 구간만 CI 실측으로 10~26초였다. 캐시가 불가능하다는 것과
+`useZip` 으로 얼마나 줄었는지는 아래 [첫 실행](#첫-실행) 에 그대로 남겨 두었다 —
+**같은 선택을 다시 검토할 사람이 읽을 기록이다.**
+
+그만두면서 따라 없어진 것 셋:
+
+- `portable.splashImage` 와 `build/splash.bmp` — NSIS 스텁이 압축을 푸는 동안 띄우던
+  비트맵이다. 덮을 구간 자체가 없어졌다
+- `portable.useZip` — 푸는 방식의 선택 자체가 사라졌다
+- **stdout 이 호출자에게 닿지 않던 문제** — NSIS 스텁이 한 겹 끼어 있던 탓이었다.
+  `--self-test-out` 은 그대로 둔다(사용자 안내가 그것을 쓰고, 파일로 받는 편이 낫다)
 
 ## JRE 동봉
 
@@ -56,7 +76,8 @@ jdk.crypto.ec     암호가 걸린 PDF
 | opendataloader JAR | 23.1MB (실측) |
 | kordoc + 앱 코드 | 약 20MB (추정) |
 | **합계 (압축 전)** | **약 660MB (실측)** — 추정 280MB 였음 |
-| **portable .exe** | **264.8MB (실측)** — `useZip` 기준. 추정 110~130MB 였음 |
+| ~~portable .exe~~ | ~~264.8MB~~ — `useZip` 기준, build.26 까지 |
+| **배포 zip** | **CI 가 빌드마다 잰다** (`out/verify/zip-size-mb.txt`) |
 
 압축 전 크기는 `compression: store` 로 한 벌 만들어 쟀다(660.7MB). 구성 표의 추정치
 합보다 두 배 이상 큰데, Windows Electron 런타임에 로케일 `.pak` 과 DLL 이 통째로 들어
@@ -70,19 +91,20 @@ jdk.crypto.ec     암호가 걸린 PDF
 
 | 구간 | 무엇이 걸리나 | 무엇으로 덮나 |
 |---|---|---|
-| 1 | 단일 exe 가 `%TEMP%` 로 약 660MB 를 푼다 + 사내 백신 전수 검사 | `portable.splashImage` (NSIS 스텁) |
-| 2 | Electron 부팅 → `whenReady` → 큐·감시 폴더 복원 → `ready-to-show` | 스플래시 **창** (`src/renderer/splash.html`) |
+| ~~1~~ | ~~단일 exe 가 `%TEMP%` 로 660MB 를 푼다~~ | **없어졌다** — zip 배포로 바꾸며 사라진 구간 |
+| 2 | Electron 부팅 → `whenReady` → 큐·감시 폴더 복원 → `ready-to-show` + 백신 검사 | 스플래시 **창** (`src/renderer/splash.html`) |
 | 3 | 첫 변환의 JVM 콜드 스타트 | 상태 칩·진행률 바 (build.8 에서 넣음) |
 
-**구간 1 에서는 우리 JS 가 한 줄도 돌지 않는다.** BrowserWindow 로는 덮을 수 없고,
-NSIS 스텁이 압축을 푸는 동안 띄우는 비트맵이 유일한 수단이다. `build/splash.bmp`
-(460×260, 24비트)가 그것이고, 구간 2 의 창과 크기·문구·색을 맞춰 두 구간이 이어져
-보이게 했다.
+zip 을 푸는 일은 사용자가 **한 번** 한다. 그 뒤로는 구간 2 와 3 만 남는다.
 
-> `build/splash.bmp` 는 Pillow 로 한 번 만들어 커밋했다. 글꼴은 Noto Sans KR
-> (400·700), 색은 `tokens.css` 의 `--text-primary`·`--text-secondary`·`--text-muted`·
-> `--accent`·`--border-default`. 다시 만들 일이 생기면 같은 값으로 그리면 된다 —
-> 개발 컨테이너에 한글 글꼴이 없어 생성 스크립트를 저장소에 두지 않았다.
+스플래시 창의 문구도 그에 맞춰 고쳤다 — "처음 실행은 시간이 걸립니다" 는 매번 푸는
+시절의 말이라 이제 사실이 아니다. 지금은 "여는 중입니다…" 다.
+
+---
+
+**아래는 portable 시절의 기록이다.** 같은 선택을 다시 검토할 사람을 위해 남긴다 —
+매번 푸는 방식이 왜 견딜 수 없었는지, 그 안에서 무엇을 시도했고 무엇이 틀렸는지가
+전부 여기 있다.
 
 **구간 1 실측** (Windows CI, `--self-test` 벽시계):
 

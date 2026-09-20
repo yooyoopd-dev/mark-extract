@@ -45,11 +45,11 @@ npm start -- 내문서.pdf 보고서.docx  # 앱을 띄우면서 바로 열기
 | `smoke` | Electron을 띄워 보안 설정·토큰·preload·렌더러 모듈 확인, 스크린샷 저장 |
 | `resources` / `jre` | JAR 복사 / 경량 JRE 생성 |
 | `verify:parsers` | 다섯 형식 변환 단언 52개 |
-| `dist:win` | Windows portable exe 빌드 |
+| `dist:win` | Windows 앱 폴더 빌드 (`dist/win-unpacked`). 배포용 zip 은 CI 가 만든다 |
 
 `resources/`(JRE·JAR)는 빌드 산출물이라 git 에 없다. `npm run resources && npm run jre` 로 만든다.
 
-Windows 동작 확인은 [GitHub Actions](.github/workflows/build.yml) 의 `debug-windows` job 이 만드는 아티팩트로 한다 — portable exe 와 변환 결과가 올라온다.
+Windows 동작 확인은 [GitHub Actions](.github/workflows/build.yml) 의 `debug-windows` job 이 만드는 아티팩트로 한다 — 배포용 zip 과 변환 결과가 올라온다.
 
 `src/renderer/styles/tokens.css`는 **자동 생성 파일이다.** 직접 고치지 말고 `design/index.html`을 고친 뒤 `npm run tokens`를 돌린다. 어긋나면 빌드가 실패한다.
 

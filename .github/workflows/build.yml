@@ -98,8 +98,30 @@ jobs:
       - name: OCR 검증 (Windows)
         run: npm run verify:ocr
 
-      - name: portable exe 빌드
-        run: npm run dist:win
+      # 자기 압축 해제 exe 를 그만뒀다. electron-builder 는 dir 로만 만들고, 그
+      # 폴더를 zip 으로 만다. 사용자는 한 번 풀고 그 안의 exe 를 그대로 쓴다.
+      #
+      # electron-builder 의 zip 타깃을 쓰지 않는 이유는 최상위 폴더 없이 말기
+      # 때문이다 — 바탕화면에 바로 풀면 파일 수백 개가 쏟아진다.
+      - name: 앱 빌드 + zip 으로 말기
+        shell: pwsh
+        run: |
+          npm run dist:win
+
+          # 이 뒤의 점검들이 dist/MarkExtract 를 본다. 푼 사람이 보게 될 것과 같은
+          # 이름·같은 배치다.
+          Remove-Item dist/MarkExtract -Recurse -Force -ErrorAction SilentlyContinue
+          Move-Item dist/win-unpacked dist/MarkExtract
+
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $zip = "dist/MarkExtract-$version-win-x64.zip"
+          7z a -tzip -mx=5 -bso0 -bsp0 $zip dist/MarkExtract
+          if ($LASTEXITCODE -ne 0) { throw "zip 을 만들지 못했습니다 (7z exit $LASTEXITCODE)" }
+
+          $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          Write-Host "zip: $zip ($mb MB)"
+          New-Item -ItemType Directory -Force -Path out/verify | Out-Null
+          "$mb" | Out-File -Encoding utf8 out/verify/zip-size-mb.txt
 
       # 패키징 뒤에야 process.resourcesPath 경로가 검증된다. 개발 경로와 다르므로
       # 여기서 깨지면 배포본이 동봉 JRE 를 못 찾는다는 뜻이다.
@@ -111,10 +133,10 @@ jobs:
         run: |
           $missing = @()
           $want = @(
-            "dist/win-unpacked/resources/jre/bin/java.exe",
-            "dist/win-unpacked/resources/lib/opendataloader-pdf-cli.jar"
+            "dist/MarkExtract/resources/jre/bin/java.exe",
+            "dist/MarkExtract/resources/lib/opendataloader-pdf-cli.jar"
           ) + @("pdf", "docx", "xlsx", "xls", "pptx" | ForEach-Object {
-            "dist/win-unpacked/resources/fixtures/sample-ko.$_"
+            "dist/MarkExtract/resources/fixtures/sample-ko.$_"
           })
           foreach ($p in $want) {
             if (-not (Test-Path $p)) { $missing += $p } else { Write-Host "있음: $p" }
@@ -123,7 +145,7 @@ jobs:
 
           # 쓰지 않는 의존성이 실제로 빠졌는지. Windows 에서는 onnxruntime-node 와
           # sharp 가 설치되므로 여기서 걸러지지 않으면 용량이 크게 는다.
-          $asar = "dist/win-unpacked/resources/app.asar"
+          $asar = "dist/MarkExtract/resources/app.asar"
           $listed = npx asar list $asar
           foreach ($pkg in @("pdfjs-dist", "@hyzyla", "@modelcontextprotocol", "onnxruntime-node", "sharp")) {
             if ($listed -match [regex]::Escape("/node_modules/$pkg/")) {
@@ -138,7 +160,7 @@ jobs:
         run: |
           # Electron 은 GUI 서브시스템이라 & 로 부르면 콘솔에 붙지 않아 출력이
           # 사라지고 대기 동작도 다르다. 핸들을 직접 넘겨 받고 시간 제한을 둔다.
-          $exe = (Get-ChildItem dist/win-unpacked/*.exe | Select-Object -First 1).FullName
+          $exe = (Get-ChildItem dist/MarkExtract/*.exe | Select-Object -First 1).FullName
           Write-Host "실행: $exe --self-test"
           $out = "out/verify/self-test-windows.txt"
           $err = "out/verify/self-test-windows.err.txt"
@@ -153,22 +175,38 @@ jobs:
           Get-Content $err -ErrorAction SilentlyContinue | Write-Host
           if ($p.ExitCode -ne 0) { throw "자체 점검 실패 (exit $($p.ExitCode))" }
 
-      # 여기까지는 압축을 풀어 놓은 디렉터리(win-unpacked)를 봤다. 그런데 사용자가
-      # 받는 것은 `dist/*.exe` — 자기 압축 해제 단일 실행 파일이고, 그쪽은 지금까지
-      # CI 에서 한 번도 실행된 적이 없다. 배포하는 바로 그 파일을 돌린다.
+      # 여기까지는 빌드가 내놓은 폴더를 그대로 봤다. 사용자가 받는 것은 그 폴더를
+      # 만 zip 이다 — 푸는 과정에서 무엇이 빠지거나 깨질 수 있으므로, 사용자가 하는
+      # 순서 그대로 **풀어서** 돌린다.
       #
       # PATH 에서 JDK 를 빼고 돌린다. 러너에는 setup-java 로 JDK 21 이 깔려 있어,
       # 어댑터가 동봉 JRE 대신 시스템 java 로 새도 그냥 초록이 뜬다. "Java 가 없는
       # PC" 라는 전제는 이렇게 해야 증명된다.
-      - name: 배포하는 단일 exe 자체 점검 (Java 없는 PATH)
+      - name: 배포하는 zip 자체 점검 (풀어서, Java 없는 PATH)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out/verify | Out-Null
-          $exe = (Get-ChildItem dist/*.exe | Select-Object -First 1).FullName
-          $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "exe: $exe"
-          Write-Host "exe 크기: $mb MB"
-          "$mb" | Out-File -Encoding utf8 out/verify/exe-size-mb.txt
+
+          $zip = (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName
+          Write-Host "zip: $zip"
+          Remove-Item dist/unzip-test -Recurse -Force -ErrorAction SilentlyContinue
+          7z x -odist/unzip-test -bso0 -bsp0 $zip
+          if ($LASTEXITCODE -ne 0) { throw "zip 을 풀지 못했습니다 (7z exit $LASTEXITCODE)" }
+
+          # 푼 결과가 폴더 하나로 감싸여 있어야 한다. 바탕화면에 바로 푸는 사람이
+          # 파일 수백 개를 뒤집어쓰지 않게 하려고 그렇게 만든다.
+          $roots = Get-ChildItem dist/unzip-test
+          if ($roots.Count -ne 1 -or -not $roots[0].PSIsContainer) {
+            throw "zip 이 폴더 하나로 감싸여 있지 않습니다: $($roots.Name -join ', ')"
+          }
+          $app = $roots[0].FullName
+          Write-Host "푼 폴더: $($roots[0].Name)"
+
+          $exe = (Get-ChildItem "$app/*.exe" | Select-Object -First 1).FullName
+          if (-not $exe) { throw "푼 폴더에 exe 가 없습니다." }
+          foreach ($need in "resources/jre/bin/java.exe", "resources/lib/opendataloader-pdf-cli.jar") {
+            if (-not (Test-Path (Join-Path $app $need))) { throw "푼 폴더에 $need 가 없습니다." }
+          }
 
           $env:JAVA_HOME = ""
           $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch '(?i)jdk|jre|\\java' }) -join ';'
@@ -177,24 +215,24 @@ jobs:
           }
           Write-Host "PATH 에 java 없음 — 확인"
 
-          # 두 번 돌린다. 두 번째가 빨라지면 압축 해제 결과를 재사용한다는 뜻이고,
-          # 그러면 "첫 실행만 느리다"가 사실이 된다.
+          # 두 번 돌린다. 이제 압축 해제가 없으므로 이 숫자는 **앱이 뜨는 시간**이다.
+          # 두 번째가 빨라지는 것이 정상이다(파일 캐시).
           #
-          # 출력은 --self-test-out 으로 파일에서 받는다. NSIS 스텁이 한 겹 끼어
-          # 있어 리다이렉트한 stdout 에는 한 글자도 오지 않는다 (run 18 실측 —
-          # exit 0 인데 파일이 비었다).
+          # 출력은 --self-test-out 으로 파일에서 받는다. NSIS 스텁이 사라져 stdout 도
+          # 닿을 테지만, 사용자 안내가 이 인자를 쓰므로 계속 이쪽으로 단언한다.
           $verify = (Resolve-Path out/verify).Path
           $results = @()
           foreach ($run in 1, 2) {
-            $log = Join-Path $verify "portable-self-test-$run.txt"
-            $err = Join-Path $verify "portable-self-test-$run.err.txt"
+            $log = Join-Path $verify "zip-self-test-$run.txt"
+            $err = Join-Path $verify "zip-self-test-$run.err.txt"
+            $so  = Join-Path $verify "zip-self-test-$run.stdout.txt"
             Remove-Item $log -ErrorAction SilentlyContinue
             $sw = [Diagnostics.Stopwatch]::StartNew()
             $p = Start-Process -FilePath $exe -ArgumentList '--self-test', '--self-test-out', $log -PassThru `
-                   -RedirectStandardOutput "$err.stdout" -RedirectStandardError $err -WindowStyle Hidden
+                   -RedirectStandardOutput $so -RedirectStandardError $err -WindowStyle Hidden
             if (-not $p.WaitForExit(300000)) {
               $p.Kill()
-              throw "단일 exe 자체 점검이 300초를 넘겨 중단되었습니다 ($run 회차)."
+              throw "자체 점검이 300초를 넘겨 중단되었습니다 ($run 회차)."
             }
             $sw.Stop()
             $results += [pscustomobject]@{ Run = $run; Sec = [math]::Round($sw.Elapsed.TotalSeconds, 1); Exit = $p.ExitCode }
@@ -203,17 +241,26 @@ jobs:
             Get-Content $err -ErrorAction SilentlyContinue | Write-Host
           }
 
-          $text = Get-Content (Join-Path $verify "portable-self-test-1.txt") -Raw -ErrorAction SilentlyContinue
+          # NSIS 스텁이 없어졌으니 stdout 도 닿아야 한다. 실패로 삼지는 않고 기록만
+          # 한다 — 배포물의 조건이 아니라 사실 확인이다.
+          $stdout = Get-Content (Join-Path $verify "zip-self-test-1.stdout.txt") -Raw -ErrorAction SilentlyContinue
+          Write-Host ("stdout 이 호출자에게 닿는가: {0}" -f $(if ($stdout) { "예" } else { "아니오" }))
+
+          $text = Get-Content (Join-Path $verify "zip-self-test-1.txt") -Raw -ErrorAction SilentlyContinue
           if (-not $text) {
-            throw "단일 exe 가 --self-test-out 파일을 남기지 않았습니다. 인자가 앱까지 가지 않거나 자체 점검이 그 전에 죽습니다."
+            throw "자체 점검이 --self-test-out 파일을 남기지 않았습니다."
           }
-          if ($results[0].Exit -ne 0) { throw "단일 exe 자체 점검 실패 (exit $($results[0].Exit))" }
+          if ($results[0].Exit -ne 0) { throw "자체 점검 실패 (exit $($results[0].Exit))" }
           if ($text -notmatch '동봉 JRE') { throw "동봉 JRE 를 쓰지 않았습니다 — 시스템 java 로 샜습니다." }
           if ($text -notmatch '5/5 성공') { throw "다섯 형식을 모두 변환하지 못했습니다." }
 
-          Write-Host ("첫 실행 {0}초 · 두 번째 {1}초 · exe {2} MB" -f $results[0].Sec, $results[1].Sec, $mb)
-          "첫 실행 $($results[0].Sec)초 / 두 번째 $($results[1].Sec)초 / exe $mb MB" |
-            Out-File -Encoding utf8 out/verify/portable-timing.txt
+          $mb = Get-Content out/verify/zip-size-mb.txt -Raw
+          Write-Host ("첫 실행 {0}초 · 두 번째 {1}초 · zip {2} MB" -f $results[0].Sec, $results[1].Sec, $mb.Trim())
+          "첫 실행 $($results[0].Sec)초 / 두 번째 $($results[1].Sec)초 / zip $($mb.Trim()) MB" |
+            Out-File -Encoding utf8 out/verify/startup-timing.txt
+
+          # 푼 사본은 아티팩트에 실을 이유가 없다.
+          Remove-Item dist/unzip-test -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: 변환 결과·로그 업로드
         uses: actions/upload-artifact@v4
@@ -228,7 +275,7 @@ jobs:
         if: always()
         with:
           name: MarkExtract-debug-${{ github.sha }}
-          path: dist/*.exe
+          path: dist/*.zip
           if-no-files-found: error
 
   release:
@@ -268,28 +315,35 @@ jobs:
             echo
             echo "## 받는 법"
             echo
-            echo "아래 \`MarkExtract-${version}.exe\` 를 내려받아 그대로 실행합니다. 설치 과정이 없고"
-            echo "Java 를 따로 깔지 않아도 됩니다 — 경량 JRE 가 실행 파일 안에 들어 있습니다."
+            echo "아래 \`MarkExtract-${version}-win-x64.zip\` 을 내려받아 **원하는 폴더에 풉니다.**"
+            echo "풀면 \`MarkExtract\` 폴더가 생기고, 그 안의 \`Mark Extract.exe\` 를 실행하면 됩니다."
+            echo "설치 과정이 없고 Java 를 따로 깔지 않아도 됩니다 — 경량 JRE 가 폴더 안에 들어"
+            echo "있습니다. 폴더째 다른 곳으로 옮기거나 다른 PC 에 복사해도 그대로 돕니다."
+            echo
+            echo "바탕 화면에서 바로 쓰려면 exe 에서 오른쪽 클릭 → \"바로 가기 만들기\" 를 쓰세요."
+            echo "**폴더 안의 다른 파일을 지우면 실행되지 않습니다.**"
             echo
             echo "서명하지 않은 실행 파일이라 SmartScreen 이 막을 수 있습니다."
             echo "\"추가 정보\" → \"실행\" 으로 넘어갑니다."
             echo
-            echo "## 첫 실행이 느린 이유"
+            echo "## 실행 속도"
             echo
-            echo "단일 exe 는 **실행할 때마다** 자기 압축을 \`%TEMP%\` 로 풉니다(약 660MB)."
-            echo "CI 실측으로 그 구간이 10~26초입니다(러너에 따라 흔들립니다). 사내 PC 에서는"
-            echo "백신의 전수 검사가 겹쳐 더 걸립니다. 그 동안에는 앱 로고가 담긴 작은 창만"
-            echo "뜹니다 — 멈춘 것이 아닙니다."
+            echo "**압축은 풀 때 한 번뿐입니다.** 지난 빌드까지는 단일 exe 가 실행할 때마다"
+            echo "660MB 를 \`%TEMP%\` 로 풀어 매번 10~26초를 썼는데, 이번 빌드부터 그 구간이"
+            echo "없어졌습니다. 남는 것은 앱이 뜨는 시간뿐입니다(아래는 CI 실측)."
             echo
             echo '```'
-            cat verify/portable-timing.txt 2>/dev/null || echo "(측정값 없음)"
+            cat verify/startup-timing.txt 2>/dev/null || echo "(측정값 없음)"
             echo '```'
+            echo
+            echo "그래도 처음 뜰 때는 사내 백신이 파일을 훑어 몇 초 걸릴 수 있습니다."
+            echo "그 동안에는 앱 로고가 담긴 작은 창만 뜹니다 — 멈춘 것이 아닙니다."
             echo
             echo "## 확인된 것"
             echo
             echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 5종, 변환 큐·감시 폴더·내보내기"
             echo "- Windows: 동봉 JRE 로 한글 문서 5종 변환, 패키징 배치, 패키징된 앱 자체 점검"
-            echo "- Windows: **배포하는 단일 exe 를 PATH 에서 JDK 를 뺀 채** 돌려 동봉 JRE 사용과 5종 변환 확인"
+            echo "- Windows: **배포하는 zip 을 실제로 풀어** PATH 에서 JDK 를 뺀 채 돌려 동봉 JRE 사용과 5종 변환 확인"
             echo
             echo "아직 확인되지 않은 것: 실제 OCR 인식 결과, gemini·codex 의 성공 응답 본문,"
             echo "Ollama 실동작. 개발 환경에서 모델·인증에 닿을 수 없어 남겨 두었습니다."
@@ -304,7 +358,7 @@ jobs:
             echo "PowerShell 에서는 \`%USERPROFILE%\` 가 펼쳐지지 않으니 \`\$env:USERPROFILE\` 을 쓰세요."
             echo
             echo '```'
-            echo "MarkExtract-${version}.exe --self-test --self-test-out %USERPROFILE%\\Desktop\\selftest.txt"
+            echo "\"Mark Extract.exe\" --self-test --self-test-out %USERPROFILE%\\Desktop\\selftest.txt"
             echo '```'
             echo
             echo "## Windows 자체 점검 출력"
@@ -324,4 +378,4 @@ jobs:
             --title "${{ steps.notes.outputs.title }}" \
             --notes-file release-notes.md \
             --prerelease \
-            release/*.exe
+            release/*.zip

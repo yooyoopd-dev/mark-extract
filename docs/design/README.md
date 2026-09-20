@@ -12,7 +12,7 @@
 | [02-parser-adapters.md](02-parser-adapters.md) | 파서 3종의 계약, CLI 플래그 매핑, 경계 조건 |
 | [03-llm-engine.md](03-llm-engine.md) | LLM CLI 서브프로세스 계층, 입력 모드 A/B, 프로바이더 4종 |
 | [04-ui-spec.md](04-ui-spec.md) | 디자인 토큰, 화면·상태, 디자인 대비 변경점, 설정 화면 |
-| [05-packaging.md](05-packaging.md) | Electron portable 빌드, JRE 동봉, 용량 |
+| [05-packaging.md](05-packaging.md) | Electron 빌드와 zip 배포, JRE 동봉, 용량 |
 | [06-roadmap.md](06-roadmap.md) | 8단계 구현 순서와 단계별 검증 기준, 확정된 운영 기본값 |
 | [ATTRIBUTION.md](ATTRIBUTION.md) | 차용 프로젝트 출처·라이선스 |
 
@@ -45,7 +45,7 @@
 
 | # | 항목 | 결정 |
 |---|---|---|
-| 1 | 셸·패키징 | Electron + electron-builder `portable` → .exe 1개 |
+| 1 | 셸·패키징 | Electron + electron-builder `dir` → 폴더를 zip 으로 배포 (build.27 이전에는 portable exe 1개) |
 | 2 | PDF | opendataloader-pdf, 경량 JRE와 JAR을 앱에 동봉 |
 | 3 | DOCX/XLSX/XLS | kordoc (`--omit=optional`, 순수 JS 경로만) |
 | 4 | PPTX | markitdown의 변환 규칙을 TypeScript로 포팅 |
@@ -64,7 +64,7 @@
 | 17 | 모드 A 포맷 미지원 | 자동 폴백 없음. 실패 처리 후 사용자가 '모드 B로 재시도' 선택 |
 | 18 | Mark Extract 라이선스 | 오픈소스 라이선스 미부여. 사내 전용 |
 | 19 | 코드 서명 | 없음. 사용 안내에 SmartScreen 우회 절차 명기 |
-| 20 | 자동 업데이트 | 없음. exe 파일 교체로 배포 |
+| 20 | 자동 업데이트 | 없음. zip 을 새로 풀어 쓰는 방식으로 배포 |
 | 21 | 문서 크기 상한 | 500MB 기본, 설정에서 변경 가능 |
 | 22 | 변환 이력 보존 | 사용자가 지울 때까지. 1,000건 초과 시 완료 항목부터 자동 정리 |
 | 23 | 대상 아키텍처 | x64만. 32비트 미지원 |
