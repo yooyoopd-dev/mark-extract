@@ -89,6 +89,12 @@ function convertPane(s: Settings): string {
         number("maxFileSizeMb", s.maxFileSizeMb, 1, 10000),
         "이보다 큰 파일은 큐에 넣지 않고 건너뜁니다.",
       )}
+      ${field(
+        "localTimeoutMin",
+        "로컬 변환 제한 시간 (분)",
+        number("localTimeoutMin", s.localTimeoutMin, 1, 180),
+        "1~180분. 기본 30분입니다. <b>OCR 을 켜면 이 값이 30분보다 작아도 30분은 기다립니다</b> — 스캔 문서는 페이지가 많으면 그보다 오래 걸립니다.",
+      )}
     </fieldset>
 
     <fieldset>
@@ -216,7 +222,7 @@ function llmPane(view: SettingsView): string {
         "llmTimeoutMin",
         "제한 시간 (분)",
         number("llmTimeoutMin", s.llmTimeoutMin, 1, 180),
-        "로컬 모델은 긴 문서에서 수십 분이 걸릴 수 있습니다. 로컬 엔진은 10분 고정입니다.",
+        "로컬 모델은 긴 문서에서 수십 분이 걸릴 수 있습니다. 로컬 엔진의 제한 시간은 변환 절에서 따로 정합니다.",
       )}
     </fieldset>
 

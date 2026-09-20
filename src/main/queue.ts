@@ -81,10 +81,13 @@ function trim(): void {
  */
 function defaultOptions(): DocOptions {
   const s = settings();
+  // 제한 시간은 엔진마다 다르다. 전에는 로컬 문서에도 LLM 값을 심어, 설정 화면이
+  // "로컬은 10분 고정" 이라 적어 둔 것과 실제가 어긋나 있었다 (build.28 실측).
+  const timeoutMin = s.defaultEngine === "llm" ? s.llmTimeoutMin : s.localTimeoutMin;
   const options: DocOptions = {
     engine: s.defaultEngine,
     imageOutput: s.imageOutput,
-    timeoutMs: s.llmTimeoutMin * 60_000,
+    timeoutMs: timeoutMin * 60_000,
     // PDF 가 아니면 어댑터가 보지 않고, 주소가 비어 있으면 --hybrid 를 붙이지 않는다.
     ocr: s.ocrByDefault,
   };

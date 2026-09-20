@@ -71,8 +71,16 @@ export interface Settings {
   model: string;
   inputMode: InputMode;
   imageOutput: "off" | "embedded" | "external";
-  /** LLM 변환 1건의 제한 시간(분). 로컬 엔진은 10분 고정 */
+  /** LLM 변환 1건의 제한 시간(분) */
   llmTimeoutMin: number;
+  /**
+   * 로컬 변환 1건의 제한 시간(분).
+   *
+   * 10분 고정이었는데 OCR 을 켠 스캔 문서가 그 안에 끝나지 않아 **정상 동작이
+   * 실패로 끊겼다**(build.28 실측). 기본을 30분으로 올리고 설정에서 늘릴 수 있게
+   * 했다. OCR 을 켜면 이 값이 30분보다 작아도 30분은 준다.
+   */
+  localTimeoutMin: number;
   /** LLM 출력 언어 */
   language: "ko" | "en" | "keep";
   /** 이보다 큰 파일은 큐에 넣지 않는다 (MB). 결정 21 */

@@ -165,6 +165,35 @@ try {
     down.log.some((e) => e.label === "OCR" && e.value.includes("30분")),
     JSON.stringify(down.log.map((e) => e.label)),
   );
+  // build.28 실측. OCR 을 켠 스캔 문서가 10분에 끊겼는데, 로그에 "30분" 이 문구로
+  // 박혀 있어 실제로 몇 분을 쓴 것인지 로그만 보고는 알 수 없었다.
+  check(
+    "실제로 쓴 제한 시간이 로그에 따로 남는다",
+    down.log.some((e) => e.label === "제한 시간" && e.value === "30분"),
+    JSON.stringify(down.log.filter((e) => e.label === "제한 시간")),
+  );
+  // 설정에서 더 늘리면 그 값을 쓴다.
+  const long = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 90 * 60_000 }, hybridUrl: DEAD });
+  check(
+    "설정이 30분보다 크면 그 값을 쓴다",
+    long.log.some((e) => e.label === "제한 시간" && e.value === "90분"),
+    JSON.stringify(long.log.filter((e) => e.label === "제한 시간")),
+  );
+  // 반대로 작게 잡아도 OCR 은 30분을 보장한다 — 스캔 문서를 짧은 값으로 끊으면
+  // 정상 동작이 실패가 된다.
+  const short = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 5 * 60_000 }, hybridUrl: DEAD });
+  check(
+    "OCR 은 설정이 작아도 30분은 기다린다",
+    short.log.some((e) => e.label === "제한 시간" && e.value === "30분"),
+    JSON.stringify(short.log.filter((e) => e.label === "제한 시간")),
+  );
+  // OCR 이 아닌 경로는 설정값을 그대로 쓴다.
+  const localShort = await parsePdf({ filePath: fixture, options: { timeoutMs: 5 * 60_000 } });
+  check(
+    "OCR 이 아니면 설정값을 그대로 쓴다",
+    localShort.log.some((e) => e.label === "제한 시간" && e.value === "5분"),
+    JSON.stringify(localShort.log.filter((e) => e.label === "제한 시간")),
+  );
   check("그대로 재시도를 제안한다", down.error?.actions.includes("retry-plain"), JSON.stringify(down.error?.actions));
 
   const plain = await parsePdf({ filePath: fixture, options: {}, hybridUrl: DEAD });

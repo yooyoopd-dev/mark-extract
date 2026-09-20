@@ -20,12 +20,18 @@ import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
 const ENGINE = "로컬 · opendataloader";
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 /**
- * OCR 은 훨씬 오래 걸린다. 스캔 수십 장을 이미지에서 인식하면 10분은 정상 동작을
- * 실패로 만든다 — build.8 에서 LLM 경로가 같은 이유로 물렸다.
+ * 10분이었는데 OCR 을 켠 스캔 문서가 그 안에 끝나지 않아 **정상 동작이 실패로
+ * 끊겼다**(build.28 실측). 30분으로 올렸고, 설정(`localTimeoutMin`)에서 더 늘릴 수
+ * 있다. 이 상수는 설정이 오기 전의 마지막 그물이다.
  */
-const OCR_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * OCR 의 최소 보장선. 스캔 수십 장을 이미지에서 인식하면 짧은 제한이 정상 동작을
+ * 실패로 만든다 — build.8 에서 LLM 경로가 같은 이유로 물렸다. 설정값이 이보다
+ * 크면 설정값을 쓴다.
+ */
+const OCR_MIN_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** 이 CLI 에는 --version 이 없다. 이걸로 확인하면 정상 설치를 고장으로 오판한다. */
 const PROBE_FLAG = "--export-options";
@@ -260,17 +266,24 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
   try {
     const ocr = request.options?.ocr === true && (request.hybridUrl ?? "") !== "";
     const args = buildArgs(request.filePath, dir, request.options, request.hybridUrl ?? "");
+
+    // 제한 시간을 문구에 박지 않고 실제 쓰는 값을 적는다. 전에는 "30분" 이라고
+    // 적어 두었는데 실제로는 문서에 실린 값이 쓰여, 10분에 끊긴 이유를 로그만
+    // 보고는 알 수 없었다 (build.28).
+    const configured = request.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = ocr ? Math.max(configured, OCR_MIN_TIMEOUT_MS) : configured;
     if (ocr) {
-      log.push({ label: "OCR", value: `hybrid 서버 ${request.hybridUrl} · 제한 시간 30분` });
+      log.push({
+        label: "OCR",
+        value: `hybrid 서버 ${request.hybridUrl} · 제한 시간 ${Math.round(timeoutMs / 60_000)}분`,
+      });
     }
     // 암호는 로그에 남기지 않는다.
     log.push({ label: "인자", value: args.map((a) => (a === request.options?.password ? "***" : a)).join(" ") });
 
-    const { code, stderr } = await runJava(
-      args,
-      request.signal,
-      request.options?.timeoutMs ?? (ocr ? OCR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS),
-    );
+    log.push({ label: "제한 시간", value: `${Math.round(timeoutMs / 60_000)}분` });
+
+    const { code, stderr } = await runJava(args, request.signal, timeoutMs);
     const elapsedMs = Date.now() - started;
     const logged = javaLog(stderr);
 

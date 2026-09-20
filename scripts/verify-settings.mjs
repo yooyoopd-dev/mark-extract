@@ -71,6 +71,14 @@ try {
   check("모르는 열거값은 기본값으로", updateSettings({ provider: "없는것" }).provider === "claude");
   check("빈 Ollama 주소는 기본값으로", updateSettings({ ollamaUrl: "  " }).ollamaUrl.includes("11434"));
   // build.25 요청. 스캔 문서가 대부분인 곳에서는 문서마다 토글을 켜는 것이 일이다.
+  // build.28 실측. 로컬 제한 시간이 10분 고정이라 OCR 스캔 문서가 정상 동작 중에
+  // 끊겼다. 기본 30분이고 설정에서 늘릴 수 있다.
+  check("로컬 제한 시간 기본은 30분", settings().localTimeoutMin === 30);
+  check("늘릴 수 있다", updateSettings({ localTimeoutMin: 90 }).localTimeoutMin === 90);
+  check("180분을 넘지 않는다", updateSettings({ localTimeoutMin: 999 }).localTimeoutMin === 180);
+  check("0 은 최소 1분으로", updateSettings({ localTimeoutMin: 0 }).localTimeoutMin === 1);
+  updateSettings({ localTimeoutMin: 30 });
+
   check("기본은 꺼짐", settings().ocrByDefault === false);
   check("켜면 저장된다", updateSettings({ ocrByDefault: true }).ocrByDefault === true);
   check("이상한 값은 기본값으로", updateSettings({ ocrByDefault: "네" }).ocrByDefault === false);

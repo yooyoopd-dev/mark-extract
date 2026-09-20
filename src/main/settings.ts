@@ -22,6 +22,7 @@ const DEFAULTS: Settings = {
   inputMode: "B",
   imageOutput: "external",
   llmTimeoutMin: 30,
+  localTimeoutMin: 30,
   language: "keep",
   maxFileSizeMb: 500,
   ollamaUrl: "http://127.0.0.1:11434",
@@ -59,6 +60,7 @@ function normalize(raw: Settings): Settings {
     imageOutput: oneOf(raw.imageOutput, ["off", "embedded", "external"] as const, DEFAULTS.imageOutput),
     // 1분~3시간. 0 이나 음수가 들어오면 변환이 즉시 실패한다.
     llmTimeoutMin: clamp(raw.llmTimeoutMin, 1, 180, DEFAULTS.llmTimeoutMin),
+    localTimeoutMin: clamp(raw.localTimeoutMin, 1, 180, DEFAULTS.localTimeoutMin),
     language: oneOf(raw.language, ["ko", "en", "keep"] as const, DEFAULTS.language),
     maxFileSizeMb: clamp(raw.maxFileSizeMb, 1, 10_000, DEFAULTS.maxFileSizeMb),
     ollamaUrl: typeof raw.ollamaUrl === "string" && raw.ollamaUrl.trim() !== ""

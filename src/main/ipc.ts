@@ -185,7 +185,7 @@ export function registerIpc(): void {
     const clean: Partial<Settings> = {};
     const p = (patch ?? {}) as Record<string, unknown>;
 
-    for (const key of ["concurrency", "llmTimeoutMin", "maxFileSizeMb"] as const) {
+    for (const key of ["concurrency", "llmTimeoutMin", "localTimeoutMin", "maxFileSizeMb"] as const) {
       if (typeof p[key] === "number") clean[key] = p[key] as number;
     }
     for (const key of ["frontmatter", "ocrByDefault"] as const) {
