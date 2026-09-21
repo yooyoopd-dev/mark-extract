@@ -271,3 +271,17 @@ portable 실행이라도 설정과 변환 이력은 남아야 한다. `%APPDATA%
 
 `%USERPROFILE%` 는 **cmd 에서만 펼쳐진다.** PowerShell 은 `$env:USERPROFILE` 이다 —
 릴리스 노트에 그 주의를 적었다.
+
+### 다이얼로그가 스크롤되지 않았다 (build.29 실측)
+
+사내 PC 에서 동봉 JRE·opendataloader·kordoc 줄까지만 읽히고 **그 아래를 볼 방법이
+없었다.** 맨 `.dialog` 에는 높이 제약이 없어 본문이 내용만큼 늘어나고, 그러면 안쪽
+`.body` 의 `overflow-y: auto` 가 걸리지 않아 스크롤 축 자체가 생기지 않는다. 설정
+창만 `.settings-dialog` 로 높이를 묶고 있었다.
+
+`.selftest-dialog` 를 같은 방식으로 둔다 — `max-height: min(720px, 88vh)` 와
+`grid-template-rows: … minmax(0, 1fr) …`. 전역 `.dialog` 는 건드리지 않는다.
+너비도 440px → 720px 로 넓혔다. 점검 결과의 긴 경로가 가로 스크롤에만 들어갔다.
+
+스모크에 단언을 걸었다(`smoke-main.cjs` 2-e). 규칙을 지우면 세 건이 함께 실패한다
+— 넘치지 않음 · 스크롤되지 않음 · 창이 화면보다 큼.

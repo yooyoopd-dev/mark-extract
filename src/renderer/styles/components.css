@@ -469,6 +469,16 @@ legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-
 .run-detail { margin-top: 4px; font-size: 12.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .bar.run-bar { width: min(320px, 80%); margin-top: 10px; }
 
+/* 자체 점검 창. 맨 .dialog 는 높이 제약이 없어 본문이 내용만큼 늘어나고, 그러면
+   .body 의 overflow-y:auto 가 걸리지 않아 화면 밖으로 넘친 뒷부분을 볼 방법이
+   사라진다 (build.29 실측 — 사내 PC 에서 kordoc 줄까지만 읽혔다). 아래
+   .settings-dialog 와 같은 방식으로 높이를 묶어 본문 칸만 스크롤시킨다.
+   440px 로는 점검 결과의 긴 경로가 가로 스크롤에만 들어가 넓힌다. */
+.selftest-dialog {
+  width: min(720px, 94vw); max-height: min(720px, 88vh);
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
 /* 설정 화면 (6b). 원본에 없는 화면이라 원본의 .dialog 스타일 위에 얹는다. */
 .settings-dialog { width: min(620px, 94vw); max-height: min(720px, 88vh); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .settings-tabs { display: flex; gap: 2px; padding: 8px 20px 0; border-bottom: 1px solid var(--border-subtle); }

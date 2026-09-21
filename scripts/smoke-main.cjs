@@ -326,6 +326,38 @@ app.whenReady().then(async () => {
     if (chrome.label !== "설정") failures.push(`설정 버튼 문구가 다릅니다: ${chrome.label}`);
     if (chrome.icons !== 0) failures.push("설정 버튼에 아이콘이 붙어 있습니다");
 
+    // 2-e. 자체 점검 창이 실제로 스크롤되는지 (build.29 실측). 맨 .dialog 는 높이
+    //      제약이 없어 본문이 내용만큼 늘어나고, 그러면 .body 의 overflow-y:auto 가
+    //      걸리지 않아 화면 밖으로 넘친 뒷부분을 볼 방법이 사라진다. 사내 PC 에서
+    //      kordoc 줄까지만 읽히고 그 아래를 확인할 수 없었던 것이 이것이다.
+    const selfTest = await win.webContents.executeJavaScript(`(() => {
+      const overlay = document.querySelector("#selfTestOverlay");
+      const out = document.querySelector("#selfTestOut");
+      if (!overlay || !out) return { error: "자체 점검 창 요소 없음" };
+      const body = overlay.querySelector(".body");
+      if (!body) return { error: "자체 점검 창 본문 칸 없음" };
+
+      const before = out.textContent;
+      out.textContent = Array.from({ length: 400 }, (_, i) => "점검 항목 " + i).join("\\n");
+      overlay.hidden = false;
+      body.scrollTop = 99999;
+      const r = {
+        overflows: body.scrollHeight > body.clientHeight + 1,
+        scrolled: body.scrollTop > 0,
+        dialogFits: overlay.querySelector(".dialog").getBoundingClientRect().height <= window.innerHeight + 1,
+      };
+      overlay.hidden = true;
+      out.textContent = before;
+      return r;
+    })()`);
+
+    if (selfTest.error) failures.push(selfTest.error);
+    else {
+      if (!selfTest.overflows) failures.push("자체 점검 창 본문이 넘치지 않음 — 칸이 내용만큼 늘어난 것으로 보입니다");
+      if (!selfTest.scrolled) failures.push("자체 점검 창이 스크롤되지 않음");
+      if (!selfTest.dialogFits) failures.push("자체 점검 창이 화면보다 큼 — 뒷부분을 볼 방법이 없습니다");
+    }
+
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을
     //    볼 방법이 사라진다.
