@@ -50,6 +50,66 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 
 산출 파일 이름은 입력 파일명의 **마지막 세 글자를 `md`로 치환**한 것이다 (`report.pdf` → `report.md`). 매 변환마다 새 임시 디렉터리를 쓰므로 그 디렉터리의 `.md` 파일을 읽으면 된다.
 
+### 그림: 파일 참조를 위치 표시로 (build.30)
+
+build.29 실측 보고 — "PDF 로컬 추출 결과에 `[이미지 참조]` 가 계속 붙는다".
+
+**원인**은 우리 쪽이었다. 네 어댑터가 모두 그림을 파일 참조로 내놓는다.
+
+```
+opendataloader  ![](<이름_images/imageFile1.png>)   ← 꺾쇠로 감싼다 (실측)
+kordoc          ![image](경로)
+pptx.ts         ![alt](media/image1.png)
+```
+
+그런데 그 파일은 **변환 1건짜리 임시 디렉터리와 함께 지워진다**. 즉 사용자에게 간
+것은 어디도 가리키지 않는 링크였고, 렌더러는 그것을 `이미지 참조 · 경로` 칩으로
+충실히 보여 주고 있었다. 파일 자체를 내보내는 길도 없었으므로 **처음부터 쓸 수 없는
+값**이었다.
+
+**고친 방식**: `src/main/image-notes.ts` 가 네 어댑터의 출력에서 참조를 걷어 내고 그
+자리에 원본 위치를 남긴다.
+
+```
+> [그림 3] 2쪽 · "3. 둘째 쪽 그림" 아래 — 내용을 글자로 옮기지 못했습니다.
+```
+
+- 위치는 셋을 순서대로 본다: **쪽 구분자**(PDF — `--markdown-page-separator` 로 받아
+  읽고 본문에서 지운다) → **슬라이드 경계**(PPTX 의 `<!-- Slide number: N -->`) →
+  **가장 가까운 앞선 제목**(DOCX·XLSX 는 쪽 개념이 없다. XLSX 는 시트 이름이 `##` 로
+  나오므로 이것이 시트를 가리킨다)
+- 슬라이드가 바뀌면 제목을 **지운다**. 닫힌 칸이라 앞 슬라이드의 제목이 넘어오면
+  거짓이 된다. PDF 쪽 경계에서는 지우지 않는다 — 쪽이 넘어가도 그 제목은 유효하다
+- 인용 줄(`>`)로 쓰는 것은 모양 때문이 아니다. `normalize.ts` 의 `joinWrappedLines`
+  가 블록으로 치는 줄이어야 앞 문단에 붙지 않는다. `![](…)` 줄은 블록이 아니라서
+  실제로 붙었다
+- 표 셀처럼 다른 내용과 한 줄에 섞이면 인용 줄을 넣을 수 없다. 인라인 `[그림 N]`
+- 경고는 **한 건으로 묶는다**. 그림마다 한 건씩 내면 그림 50개짜리 문서에서 경고
+  탭이 쓸모없어진다. 정확한 위치는 본문이 들고 있다
+
+**호출 순서가 중요하다** (PDF):
+`cleanHtmlInMarkdown` → `noteImages` → `joinWrappedLines` → `normalizeMarkdown`.
+쪽 구분자와 `![](…)` 는 둘 다 블록이 아니라, 먼저 이으면 앞 문단에 붙어 버린다.
+
+#### 어느 경로가 그림을 글자로 만들 수 있나
+
+| 경로 | 그림 내용 → 글자 |
+|---|---|
+| 로컬 (opendataloader · kordoc · pptx) | **못 한다.** 위치만 남긴다 |
+| OCR (hybrid · docling) | **스캔된 글자만.** 사진·차트·도형에는 글자가 없어 나오지 않는다 |
+| LLM 모드 A (CLI 가 원본 파일을 직접 읽음) | **비전 지원 CLI 라면 할 수 있다** |
+| LLM 모드 B (로컬 파싱 → 재가공) | **못 한다.** 입력이 이미 텍스트다 |
+
+"모든 이미지를 텍스트로" 를 보장하는 경로는 없다. 그래서 위치 표시가 필요하다.
+모드 A 를 위해 프롬프트에 한 줄을 두었다 — 그림 내용을 글로 옮기고 파일 참조는 쓰지
+말라고(`llm/prompt.ts`).
+
+#### 없앤 선택지
+
+`external`(파일로 참조)·`embedded`(base64) 를 뺐다. 전자는 죽은 링크만 만들었고,
+후자는 md 를 수 MB~수십 MB 로 부풀린다. 저장돼 있던 옛 값은 `normalize()` 의
+`oneOf` 가 모르는 값으로 보고 새 기본값 `note` 로 되돌린다.
+
 ### 헬스 체크 — 2단계 실측
 
 **이 CLI에는 `--version` 플래그가 없다.** 실제로 던져 보면 `Unrecognized option: --version` 과 usage 배너를 내고 **exit 2** 로 끝난다. 이걸로 확인하면 정상 설치를 고장으로 오판한다.
@@ -63,10 +123,10 @@ npm 패키지 `@opendataloader/pdf`의 래퍼(`dist/index.js`)는 `const command
 | 표 감지 방식 | `--table-method` | `default`(테두리) / `cluster`(테두리+군집) |
 | 읽기 순서 | `--reading-order` | `xycut`(기본) / `off` |
 | 머리글·바닥글 | `--include-header-footer` | 켜면 포함. 기본은 제거 |
-| 이미지 처리 | `--image-output` | `off` / `embedded`(base64) / `external`(파일 참조) |
+| 이미지 처리 | `--image-output` | 인스펙터의 `위치만 표시` → `external`, `제외` → `off` (아래 절) |
 | 페이지 범위 | `--pages` | `1,3,5-7` |
 | 암호 | `--password` | 문서 열기 암호 |
-| 페이지 구분자 | `--markdown-page-separator` | `%page-number%` 치환 지원 |
+| 페이지 구분자 | `--markdown-page-separator` | `%page-number%` 치환. **늘 넘긴다** — 그림의 쪽 번호가 여기서 나온다 |
 | 줄바꿈 보존 | `--keep-line-breaks` | |
 | OCR (hybrid 연결 시) | `--hybrid docling-fast` `--hybrid-url` | → [OCR](#ocr과-hybrid-서버) |
 | 모든 페이지 보내기 | `--hybrid-mode` | `auto`(기본, 선별) / `full`(전 페이지) |

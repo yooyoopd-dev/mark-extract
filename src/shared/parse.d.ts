@@ -53,8 +53,13 @@ export interface DocOptions {
   readonly readingOrder?: "xycut" | "off";
   /** 켜면 머리글·바닥글을 남긴다. 기본은 제거 */
   readonly includeHeaderFooter?: boolean;
-  /** off = 이미지 없음, embedded = base64, external = 파일 참조 */
-  readonly imageOutput?: "off" | "embedded" | "external";
+  /**
+   * note = 못 읽은 그림 자리에 위치 표시 줄, off = 아무것도 남기지 않음.
+   *
+   * `external`(파일 참조)·`embedded`(base64) 는 뺐다. 참조한 파일은 임시
+   * 디렉터리와 함께 지워져 어디도 가리키지 않았다 (build.29 실측).
+   */
+  readonly imageOutput?: "note" | "off";
   /** "1,3,5-7" */
   readonly pages?: string;
   /** 문서 열기 암호. 메모리에만 두고 저장하지 않는다 */

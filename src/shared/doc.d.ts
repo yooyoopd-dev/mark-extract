@@ -70,7 +70,7 @@ export interface Settings {
   /** 빈 문자열이면 CLI 기본값 */
   model: string;
   inputMode: InputMode;
-  imageOutput: "off" | "embedded" | "external";
+  imageOutput: "note" | "off";
   /** LLM 변환 1건의 제한 시간(분) */
   llmTimeoutMin: number;
   /**

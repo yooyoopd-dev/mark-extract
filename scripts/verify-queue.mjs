@@ -205,6 +205,14 @@ try {
 
   check("모르는 키는 여전히 버린다", cleanOptions({ 이상한키: 1 })["이상한키"] === undefined);
 
+  // 이미지 처리 (build.30). 값 목록을 좁혔으니 여기도 같이 좁혀야 한다 — 화면과
+  // 어댑터가 멀쩡한데 IPC 가 값을 버려 기능이 죽는 것이 build.25 의 OCR 토글이었다.
+  const img = cleanOptions({ imageOutput: "off" });
+  check("제외가 IPC 를 지난다", img.imageOutput === "off", JSON.stringify(img));
+  check("위치 표시가 IPC 를 지난다", cleanOptions({ imageOutput: "note" }).imageOutput === "note");
+  check("없앤 external 은 버린다", cleanOptions({ imageOutput: "external" }).imageOutput === undefined);
+  check("없앤 embedded 도 버린다", cleanOptions({ imageOutput: "embedded" }).imageOutput === undefined);
+
   // 렌더러가 보내는 모양 그대로 넣어 어댑터 명령줄까지 확인한다. OCR 대신 구조
   // 트리를 쓰는 이유는 서버 없이도 끝까지 도는 경로이기 때문이다.
   queue.reconvert(pdf.id, cleanOptions({ useStructTree: true }));

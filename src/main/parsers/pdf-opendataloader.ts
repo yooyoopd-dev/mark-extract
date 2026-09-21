@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
 import { cleanHtmlInMarkdown } from "../html-in-markdown";
+import { noteImages, PAGE_SEPARATOR } from "../image-notes";
 import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
@@ -170,6 +171,9 @@ function buildArgs(
     // 친절한 안내까지 삼켜서 실패가 "엔진이 1 로 끝났습니다"만 남았고,
     // collectWarnings() 는 처음부터 한 줄도 받지 못하는 죽은 코드였다.
     // INFO 는 우리가 걸러 낸다 (javaLog).
+    // 그림이 원본 몇 쪽에 있었는지 알려면 쪽 경계가 필요하다. image-notes.ts 가
+    // 읽고 본문에서 지운다 — 사용자 결과물에 남을 표식이 아니다.
+    "--markdown-page-separator", PAGE_SEPARATOR,
     "--output-dir", outputDir,
   ];
 
@@ -178,7 +182,10 @@ function buildArgs(
   if (options.tableMethod) args.push("--table-method", options.tableMethod);
   if (options.readingOrder) args.push("--reading-order", options.readingOrder);
   if (options.includeHeaderFooter) args.push("--include-header-footer");
-  if (options.imageOutput) args.push("--image-output", options.imageOutput);
+  // note 는 엔진에게 참조를 내게 한 뒤 우리가 위치 표시로 바꾼다 — 위치를 알려면
+  // 엔진이 그림이 어디 있었는지 찍어 줘야 한다. off 면 PNG 를 뽑는 일 자체를 시키지
+  // 않는다(임시 디렉터리와 함께 지워질 파일이라 뽑을수록 손해다).
+  args.push("--image-output", options.imageOutput === "off" ? "off" : "external");
   if (options.pages) args.push("--pages", options.pages);
   if (options.password) args.push("--password", options.password);
 
@@ -328,8 +335,11 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     // 표를 먼저 파이프 표로 바꾼다. 줄 잇기보다 앞서야 한다 — HTML 표는 여러 줄에
     // 걸쳐 있어서 먼저 이으면 태그가 한 줄로 뭉개진다.
     const cleaned = cleanHtmlInMarkdown(await readFile(join(dir, first), "utf8"));
+    // 그림 처리는 줄 잇기보다 **앞서야** 한다. 페이지 구분자와 `![](…)` 는 둘 다
+    // normalize.ts 가 블록으로 치지 않아, 먼저 이으면 앞 문단에 붙어 버린다.
+    const noted = noteImages(cleaned.markdown, request.options?.imageOutput ?? "note");
     // --keep-line-breaks 로 받았으므로 문단 잇기는 우리 몫이다.
-    const markdown = normalizeMarkdown(joinWrappedLines(cleaned.markdown));
+    const markdown = normalizeMarkdown(joinWrappedLines(noted.markdown));
 
     if (markdown.trim() === "") {
       return {
@@ -349,7 +359,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     return {
       ok: true,
       markdown,
-      warnings: [...logged.warnings, ...cleaned.warnings],
+      warnings: [...logged.warnings, ...cleaned.warnings, ...noted.warnings],
       log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
       meta: { engine: ENGINE, elapsedMs },
     };

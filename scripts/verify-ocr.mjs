@@ -135,6 +135,16 @@ try {
   // --quiet 는 로그를 통째로 꺼 버려 실패 사유도 경고도 사라진다 (실측).
   check("--quiet 를 쓰지 않는다", !line({}).includes("--quiet"), line({}));
 
+  // 그림 처리 (build.30). 위치를 말하려면 엔진이 쪽 경계와 그림 자리를 찍어 줘야
+  // 한다 — 이 두 인자가 빠지면 image-notes.ts 는 아무것도 할 수 없다.
+  check("쪽 구분자를 늘 넘긴다", line({}).includes("--markdown-page-separator"), line({}));
+  check("기본은 --image-output external", line({}).includes(" --image-output external "), line({}));
+  check(
+    "제외를 고르면 엔진도 그림을 뽑지 않는다",
+    line({ imageOutput: "off" }).includes(" --image-output off "),
+    line({ imageOutput: "off" }),
+  );
+
   /* ── 4. 실제 실행 — 서버가 꺼졌을 때 ──────────────── */
   //
   // 동봉 JRE 로 진짜 CLI 를 돌린다. 연결 거부는 즉시 나므로 빠르다.

@@ -191,10 +191,11 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
       <div class="opt">
         <label for="optImages">이미지 처리</label>
         <select id="optImages" data-opt="imageOutput">
-          <option value="external"${sel(options.imageOutput ?? "external", "external")}>파일로 참조</option>
-          <option value="embedded"${sel(options.imageOutput ?? "external", "embedded")}>본문에 포함</option>
-          <option value="off"${sel(options.imageOutput ?? "external", "off")}>제외</option>
+          <option value="note"${sel(options.imageOutput ?? "note", "note")}>위치만 표시</option>
+          <option value="off"${sel(options.imageOutput ?? "note", "off")}>제외</option>
         </select>
+        <span class="desc">로컬 엔진은 그림 내용을 글자로 옮기지 못합니다. 못 읽은 자리에
+          <code>[그림 N]</code> 과 쪽 번호를 남깁니다.</span>
       </div>
       <button class="btn block" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 설정으로 재변환</span></button>
     </div>

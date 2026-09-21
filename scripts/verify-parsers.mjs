@@ -20,6 +20,7 @@ require.cache[require.resolve("electron")] = { exports: { app: { isPackaged: fal
 const { convert } = require(join(root, "out/main/convert.js"));
 const { probe } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 const { detectFormat } = require(join(root, "out/main/detect-format.js"));
+const { noteImages } = require(join(root, "out/main/image-notes.js"));
 
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -91,6 +92,46 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
+/* ── 그림 위치 표시 (합성 입력) ───────────────────────── */
+//
+// 실제 문서로는 닿지 않는 가지들이다. 시험 자료를 매번 새로 만드는 것보다
+// 함수에 직접 넣어 보는 쪽이 값싸고 정확하다.
+console.log("\n그림 위치 표시 — 합성 입력");
+{
+  const withPages = [
+    "<!-- markextract-page 1 -->",
+    "## 첫째 절",
+    "![](<a_images/imageFile1.png>)",
+    "<!-- markextract-page 2 -->",
+    "본문",
+    "![image](b.png)",
+  ].join("\n");
+
+  const noted = noteImages(withPages, "note");
+  check("쪽 구분자를 본문에서 지운다", !noted.markdown.includes("markextract-page"));
+  check("쪽이 바뀌면 쪽 번호도 바뀐다", /\[그림 2\] 2쪽/.test(noted.markdown), noted.markdown);
+  check("쪽이 넘어가도 제목은 유효하다", noted.markdown.includes('[그림 2] 2쪽 · "첫째 절" 아래'));
+  check("인용 줄로 나온다", noted.markdown.split("\n").some((l) => l.startsWith("> [그림 1]")));
+
+  const off = noteImages(withPages, "off");
+  check("off 는 참조를 남기지 않는다", !off.markdown.includes("!["), off.markdown);
+  check("off 는 위치 표시도 하지 않는다", !off.markdown.includes("[그림"), off.markdown);
+  check("off 는 경고를 내지 않는다", off.warnings.length === 0);
+  check("off 가 본문을 지우지는 않는다", off.markdown.includes("본문"));
+
+  // 위치를 하나도 모르는 입력. 쪽도 제목도 없다.
+  const bare = noteImages("![](x.png)", "note");
+  check("위치를 모르면 번호만 남긴다", bare.markdown.trim() === "> [그림 1] 내용을 글자로 옮기지 못했습니다.", bare.markdown);
+
+  // 표 셀처럼 다른 내용과 섞인 줄. 인용 줄을 넣으면 표가 깨진다.
+  const cell = noteImages("| 표 안 | ![](y.png) |", "note");
+  check("섞인 줄은 인라인으로", cell.markdown === "| 표 안 | [그림 1] |", cell.markdown);
+
+  // 그림이 없으면 아무것도 하지 않는다.
+  const none = noteImages("# 제목\n\n본문", "note");
+  check("그림이 없으면 경고도 없다", none.warnings.length === 0 && none.markdown === "# 제목\n\n본문");
+}
+
 /* ── 변환 ─────────────────────────────────────────────── */
 const COMMON = [
   ["제목", (md) => md.includes("문서 변환 시험 자료")],
@@ -128,6 +169,28 @@ const TABLE_CHECKS = [
   ["밑줄·물결·백틱도 원래 글자다", (md) => md.includes("밑줄 _강조_ 와 물결 ~취소~ 와 백틱 `코드`")],
   // 표의 파이프는 우리가 일부러 넣는 것이라 남아 있어야 한다 (위 검사와 한 쌍).
   ["역슬래시를 떼도 표는 그대로다", (md) => md.includes("파이프 \\| 와")],
+];
+
+/**
+ * 못 읽은 그림의 위치 표시 (build.29 실측 → build.30).
+ *
+ * 네 어댑터가 모두 그림을 파일 참조로 내놓는데 그 파일은 임시 디렉터리와 함께
+ * 지워진다. 즉 **어디도 가리키지 않는 링크**가 사용자에게 갔다. 그때까지 시험
+ * 자료 어디에도 그림이 한 장도 없어 단언이 전부 통과했다.
+ */
+const IMAGE_CHECKS = [
+  ["이미지 구문이 살아남지 않는다", (md) => !md.includes("![")],
+  ["첫 그림에 번호가 붙는다", (md) => md.includes("[그림 1]")],
+  ["둘째 그림에도 번호가 붙는다", (md) => md.includes("[그림 2]")],
+  ["못 읽었다고 말한다", (md) => md.includes("내용을 글자로 옮기지 못했습니다")],
+  ["경고가 한 건으로 묶인다", (md, r) => r.warnings.filter((w) => w.code === "IMAGE_NOT_EXTRACTED").length === 1],
+  [
+    "경고가 개수와 다음 수단을 말한다",
+    (md, r) => {
+      const w = r.warnings.find((x) => x.code === "IMAGE_NOT_EXTRACTED");
+      return /그림 \d+개/.test(w?.message ?? "") && (w?.message ?? "").includes("OCR");
+    },
+  ],
 ];
 
 const CASES = [
@@ -184,6 +247,45 @@ const CASES = [
     engine: "opendataloader",
     title: "병합 표 시험 자료",
     extra: TABLE_CHECKS,
+  },
+  {
+    file: "sample-image.pdf",
+    engine: "opendataloader",
+    title: "그림이 든 시험 자료",
+    extra: [
+      ...IMAGE_CHECKS,
+      // 쪽이 실제로 갈렸는지. 한 쪽짜리 자료였다면 늘 1쪽이라 맞는지 틀리는지
+      // 구별되지 않는다 — 그래서 시험 자료를 두 쪽으로 만들었다.
+      ["첫 그림이 1쪽", (md) => /\[그림 1\] 1쪽/.test(md)],
+      ["마지막 그림이 2쪽", (md) => /\[그림 3\] 2쪽/.test(md)],
+      ["직전 제목이 위치에 붙는다", (md) => md.includes('"1. 첫째 쪽 그림" 아래')],
+      // 표 셀 안에는 인용 줄을 넣을 수 없어 인라인으로 바꾼다.
+      ["표 셀 안은 인라인 [그림 N]", (md) => /\|\s*표 안\s*\|\s*\[그림 2\]\s*\|/.test(md)],
+      ["쪽 구분자가 새지 않는다", (md) => !/markextract-page/.test(md)],
+      ["그림 뒤 문단이 삼켜지지 않았다", (md) => md.includes("위치 표시 줄이 이 문단을 삼키지 않아야 한다")],
+    ],
+  },
+  {
+    file: "sample-image.docx",
+    engine: "kordoc",
+    title: "그림이 든 시험 자료",
+    extra: [
+      ...IMAGE_CHECKS,
+      // DOCX 에는 쪽 개념이 없다. 가장 가까운 앞선 제목이 위치가 된다.
+      ["직전 제목이 위치가 된다", (md) => md.includes('[그림 1] "1. 첫째 그림" 아래')],
+      ["쪽 번호를 지어내지 않는다", (md) => !/\[그림 \d+\] \d+쪽/.test(md)],
+    ],
+  },
+  {
+    file: "sample-image.pptx",
+    engine: "자체 구현",
+    title: "1. 첫째 슬라이드",
+    extra: [
+      ...IMAGE_CHECKS,
+      ["슬라이드 번호가 위치가 된다", (md) => md.includes("[그림 1] 1번째 슬라이드")],
+      // 슬라이드는 닫힌 칸이라 앞 슬라이드의 제목이 넘어오면 거짓이 된다.
+      ["제목 없는 슬라이드에 앞 제목이 새지 않는다", (md) => md.includes("[그림 2] 2번째 슬라이드 —")],
+    ],
   },
 ];
 

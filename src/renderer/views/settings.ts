@@ -68,10 +68,12 @@ function convertPane(s: Settings): string {
         "imageOutput",
         "이미지 처리",
         select("imageOutput", s.imageOutput, [
-          ["external", "파일로 참조"],
-          ["embedded", "본문에 포함"],
+          ["note", "위치만 표시"],
           ["off", "제외"],
         ]),
+        "그림은 <b>내용을 글자로 옮길 수 있을 때만</b> 본문에 들어옵니다. 로컬 엔진은 못 옮기므로 " +
+          "못 읽은 자리에 <code>[그림 N]</code> 과 쪽 번호를 남깁니다. 스캔된 글자는 OCR 이, " +
+          "사진·차트 설명은 LLM 엔진의 모드 A 가 글로 바꿉니다.",
       )}
     </fieldset>
 

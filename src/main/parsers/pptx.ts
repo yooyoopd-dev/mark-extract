@@ -21,6 +21,7 @@ import { readFile } from "node:fs/promises";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import type { Document as XmlDocument, Element as XmlElement } from "@xmldom/xmldom";
+import { noteImages } from "../image-notes";
 import { normalizeMarkdown } from "../normalize";
 import type { LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
@@ -292,7 +293,11 @@ export async function parsePptx(request: ParseRequest): Promise<ParseResult> {
       if (match?.[1]) lines.push(...(await slideNotes(zip, Number(match[1]))));
     }
 
-    const markdown = normalizeMarkdown(lines.join("\n"));
+    // 슬라이드의 그림도 파일 참조로만 나온다. 위치 표시로 바꾼다 — 슬라이드
+    // 경계 주석이 이미 있어 몇 번째 슬라이드인지까지 붙는다 (image-notes.ts).
+    const noted = noteImages(lines.join("\n"), request.options?.imageOutput ?? "note");
+    warnings.push(...noted.warnings);
+    const markdown = normalizeMarkdown(noted.markdown);
     const elapsedMs = Date.now() - started;
 
     if (markdown.trim() === "") {

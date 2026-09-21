@@ -20,7 +20,7 @@ const DEFAULTS: Settings = {
   provider: "claude",
   model: "",
   inputMode: "B",
-  imageOutput: "external",
+  imageOutput: "note",
   llmTimeoutMin: 30,
   localTimeoutMin: 30,
   language: "keep",
@@ -57,7 +57,9 @@ function normalize(raw: Settings): Settings {
     provider: oneOf(raw.provider, ["claude", "gemini", "codex", "ollama"] as const, DEFAULTS.provider),
     model: typeof raw.model === "string" ? raw.model.trim().slice(0, 200) : DEFAULTS.model,
     inputMode: oneOf(raw.inputMode, ["A", "B"] as const, DEFAULTS.inputMode),
-    imageOutput: oneOf(raw.imageOutput, ["off", "embedded", "external"] as const, DEFAULTS.imageOutput),
+    // 옛 값 external·embedded 는 oneOf 가 모르는 값으로 보고 기본값 note 로 되돌린다
+    // — 따로 이전 코드를 두지 않아도 저장돼 있던 설정이 새 뜻으로 옮겨 온다.
+    imageOutput: oneOf(raw.imageOutput, ["note", "off"] as const, DEFAULTS.imageOutput),
     // 1분~3시간. 0 이나 음수가 들어오면 변환이 즉시 실패한다.
     llmTimeoutMin: clamp(raw.llmTimeoutMin, 1, 180, DEFAULTS.llmTimeoutMin),
     localTimeoutMin: clamp(raw.localTimeoutMin, 1, 180, DEFAULTS.localTimeoutMin),

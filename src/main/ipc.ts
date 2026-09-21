@@ -38,9 +38,7 @@ export function cleanOptions(raw: unknown): DocOptions {
 
   if (o["tableMethod"] === "default" || o["tableMethod"] === "cluster") out["tableMethod"] = o["tableMethod"];
   if (typeof o["includeHeaderFooter"] === "boolean") out["includeHeaderFooter"] = o["includeHeaderFooter"];
-  if (o["imageOutput"] === "off" || o["imageOutput"] === "embedded" || o["imageOutput"] === "external") {
-    out["imageOutput"] = o["imageOutput"];
-  }
+  if (o["imageOutput"] === "note" || o["imageOutput"] === "off") out["imageOutput"] = o["imageOutput"];
   if (typeof o["pages"] === "string" && o["pages"].trim() !== "") out["pages"] = o["pages"].trim();
 
   // OCR·구조 트리. false 도 실어야 한다 — 빈 값으로 보고 버리면 한 번 켠 옵션을
