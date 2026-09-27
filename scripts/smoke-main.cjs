@@ -358,6 +358,28 @@ app.whenReady().then(async () => {
       if (!selfTest.dialogFits) failures.push("자체 점검 창이 화면보다 큼 — 뒷부분을 볼 방법이 없습니다");
     }
 
+    // 2-f. 설정 → OCR 절의 버튼 두 개. [연결 테스트] 는 앱에서 /health 만 보고,
+    //      [터미널에서 진단] 은 같은 확인을 검정 창에서 앱과 같은 인자로 돌린다
+    //      (build.30 요청). 누르지는 않는다 — 리눅스에 cmd.exe 가 없다.
+    const ocrPane = await win.webContents.executeJavaScript(`(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 120));
+      document.querySelector("#tbSettings")?.click();
+      await wait();
+      document.querySelector('.settings-tabs .tab[data-pane="ocr"]')?.click();
+      await wait();
+      const r = {
+        test: !!document.querySelector("#testHybrid"),
+        diagnose: !!document.querySelector("#diagnoseHybrid"),
+        label: (document.querySelector("#diagnoseHybrid")?.textContent ?? "").trim(),
+      };
+      document.querySelector("#settingsOverlay").hidden = true;
+      return r;
+    })()`);
+
+    if (!ocrPane.test) failures.push("설정 OCR 절에 연결 테스트 버튼이 없습니다");
+    if (!ocrPane.diagnose) failures.push("설정 OCR 절에 터미널 진단 버튼이 없습니다");
+    else if (!ocrPane.label.includes("터미널")) failures.push(`터미널 진단 버튼 문구가 다릅니다: ${ocrPane.label}`);
+
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을
     //    볼 방법이 사라진다.

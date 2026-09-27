@@ -9,6 +9,7 @@ import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
 import { testHybrid } from "./hybrid-http";
+import { writeBatch } from "./diagnose-bat";
 import { probeCli } from "./llm/launch";
 import { clearCache, resolveCli } from "./llm/resolve";
 import { providerOf } from "./llm/providers";
@@ -175,6 +176,23 @@ export function registerIpc(): void {
   ipcMain.handle("hybrid:test", (_e, url?: unknown) =>
     testHybrid(typeof url === "string" && url.trim() !== "" ? url : settings().hybridUrl),
   );
+
+  // 같은 확인을 터미널에서. /health 는 두 방식으로, 변환은 앱과 **같은 인자**로
+  // 돌린다 (diagnose-bat.ts). 배치 파일은 남겨 둔다 — 부팅 직후 자기 문서로 다시
+  // 돌려 보는 것이 이 창의 목적이다.
+  ipcMain.handle("hybrid:diagnose", async () => {
+    try {
+      const path = await writeBatch();
+      if (process.platform !== "win32") {
+        return { ok: false, path, detail: "배치 파일은 Windows 에서만 실행됩니다. 파일은 만들어 두었습니다." };
+      }
+      // openPath 는 성공하면 빈 문자열, 실패하면 사유를 돌려준다.
+      const failure = await shell.openPath(path);
+      return failure === "" ? { ok: true, path, detail: "" } : { ok: false, path, detail: failure };
+    } catch (error) {
+      return { ok: false, path: "", detail: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
   /* 설정 ------------------------------------------------ */
   ipcMain.handle("settings:get", () => settings());

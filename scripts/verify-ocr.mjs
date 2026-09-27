@@ -9,7 +9,7 @@
  */
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -21,10 +21,12 @@ const work = mkdtempSync(join(tmpdir(), "markextract-verify-ocr-"));
 const userData = join(work, "userData");
 mkdirSync(userData, { recursive: true });
 require.cache[require.resolve("electron")] = {
-  exports: { app: { isPackaged: false, getPath: () => userData } },
+  // getAppPath 는 diagnose-bat.ts 가 동봉 시험 자료를 찾는 데 쓴다 (self-test.fixturesDir).
+  exports: { app: { isPackaged: false, getPath: () => userData, getAppPath: () => root } },
 };
 
 const { testHybrid, isRemote } = require(join(root, "out/main/hybrid-http.js"));
+const { buildBatch, writeBatch } = require(join(root, "out/main/diagnose-bat.js"));
 const { buildArgs, failureReason, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 
 const failures = [];
@@ -292,7 +294,57 @@ try {
   check("잘려도 끝부분이 남는다", longReason.includes("마지막 줄이 사유다"), longReason.slice(-60));
   check("자른 것을 알린다", longReason.includes("앞부분 생략"), longReason.slice(0, 80));
 
-  /* ── 7. 기존 인자가 그대로인지 ────────────────────── */
+  /* ── 7. 진단 배치 ──────────────────────────────────── */
+  //
+  // 터미널 실행이 앱 실행과 **같은 명령**이어야 진단이 된다. 인자가 갈라지면
+  // 터미널에서 되는데 앱에서 안 되는 이유를 여기서 만들어 내는 셈이다.
+  console.log("\n진단 배치");
+  const URL = "http://127.0.0.1:5002";
+  const bat = buildBatch({
+    java: "C:\\Program Files\\Mark Extract\\resources\\jre\\bin\\java.exe",
+    jar: "C:\\Program Files\\Mark Extract\\resources\\lib\\opendataloader-pdf-cli.jar",
+    hybridUrl: URL,
+    sample: "C:\\Program Files\\Mark Extract\\resources\\fixtures\\sample-ko.pdf",
+    ocrArgs: buildArgs("%TARGET%", "%OUTROOT%", { ocr: true }, URL),
+    localArgs: buildArgs("%TARGET%", "%OUTROOT%", {}, ""),
+  });
+
+  check("코드페이지를 UTF-8 로 바꾼다", bat.includes("chcp 65001"), "");
+  check("창이 닫히지 않는다", /\r\npause\r\n/.test(bat), "");
+  check("CRLF 로 쓴다", bat.includes("\r\n") && !/[^\r]\n/.test(bat), "");
+  check("java 경로가 따옴표 안에 있다", bat.includes('set "JAVA=C:\\Program Files'), "");
+  check("JAR 경로가 따옴표 안에 있다", bat.includes('set "JAR=C:\\Program Files'), "");
+  check("curl 로 /health 를 두드린다", bat.includes('curl.exe -sS -i --max-time 10 "%URL%/health"'), "");
+  check("PowerShell 로 한 번 더 두드린다", bat.includes("Invoke-WebRequest"), "");
+  check("OCR 절이 --hybrid-url 을 쓴다", bat.includes(`"--hybrid-url" "${URL}"`), "");
+  check("OCR 절과 로컬 절의 출력 폴더가 다르다", bat.includes("markextract-diag") && bat.includes('"%OUTROOT%\\hybrid"') && bat.includes('"%OUTROOT%\\local"'), "");
+  check("로컬 절에는 --hybrid 가 없다", bat.split("4) 로컬 변환")[1]?.includes("--hybrid") === false, "");
+  check("끌어다 놓은 파일을 쓴다", bat.includes('set "TARGET=%~1"') && bat.includes('"%TARGET%"'), "");
+  check("인자가 없으면 동봉 자료로 떨어진다", bat.includes('if "%TARGET%"=="" set "TARGET=C:\\Program Files'), "");
+  // 페이지 구분자에 %page-number% 가 들어 있다. 늘리지 않으면 cmd 가 먹어 버린다.
+  check("% 를 %% 로 늘린다", bat.includes("%%page-number%%"), "");
+  check("늘리지 않은 %page-number% 는 없다", !/[^%]%page-number%[^%]/.test(bat), "");
+  // 페이지 구분자·표 인자가 앱과 같아야 한다.
+  for (const flag of ['"--markdown-with-html"', '"--keep-line-breaks"', '"--image-output" "external"']) {
+    check(`${flag} 가 앱과 같다`, bat.includes(flag), "");
+  }
+
+  const noUrl = buildBatch({
+    java: "j.exe",
+    jar: "a.jar",
+    hybridUrl: "",
+    sample: "s.pdf",
+    ocrArgs: buildArgs("%TARGET%", "%OUTROOT%", { ocr: true }, ""),
+    localArgs: buildArgs("%TARGET%", "%OUTROOT%", {}, ""),
+  });
+  check("주소가 없으면 health·OCR 절이 빠진다", !noUrl.includes("curl.exe") && !noUrl.includes("3) OCR 변환"), "");
+  check("그래도 로컬 절은 남는다", noUrl.includes("4) 로컬 변환"), "");
+
+  const written = await writeBatch();
+  check("설정 폴더에 남는다", written.endsWith("diagnose-ocr.bat") && existsSync(written), written);
+  check("파일 내용이 배치다", readFileSync(written, "utf8").startsWith("@echo off"), "");
+
+  /* ── 8. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");
   const base = line({});
   for (const flag of ["--format markdown", "--keep-line-breaks", "--markdown-with-html", "--output-dir"]) {

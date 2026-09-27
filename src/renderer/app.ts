@@ -609,6 +609,7 @@ const settingsView: { -readonly [K in keyof SettingsView]: SettingsView[K] } = {
   cli: null,
   ollama: null,
   hybrid: null,
+  diagnose: null,
   promptOpen: false,
   prompt: "",
   version: "",
@@ -668,6 +669,19 @@ async function loadHybridStatus(): Promise<void> {
   state.hybridOk = hybrid.ok;
   paintSettings();
   render();
+}
+
+/**
+ * 진단 배치를 만들어 터미널에서 띄운다.
+ *
+ * 결과를 화면에도 적는다 — 사내망 PC 에서는 화면이 유일한 진단 수단이고, 띄우기가
+ * 막혔을 때 남은 배치 파일 경로를 알려 줘야 사용자가 직접 실행할 수 있다.
+ */
+async function runHybridDiagnose(): Promise<void> {
+  settingsView.diagnose = null;
+  paintSettings();
+  settingsView.diagnose = await window.markExtract.diagnoseHybrid();
+  paintSettings();
 }
 
 /**
@@ -764,6 +778,7 @@ function bindSettings(): void {
       return void navigator.clipboard.writeText(settingsView.prompt).then(() => toast("프롬프트를 복사했습니다."));
     }
     if (target.closest("#testHybrid")) return void loadHybridStatus();
+    if (target.closest("#diagnoseHybrid")) return void runHybridDiagnose();
 
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {

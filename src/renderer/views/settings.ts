@@ -20,6 +20,8 @@ export interface SettingsView {
   readonly ollama: { ok: boolean; models: string[]; detail: string } | null;
   /** hybrid 서버 연결 테스트 결과. 아직 안 눌렀으면 null */
   readonly hybrid: { ok: boolean; detail: string; ms: number } | null;
+  /** 진단 배치를 띄운 결과. 아직 안 눌렀으면 null */
+  readonly diagnose: { ok: boolean; path: string; detail: string } | null;
   /** 프롬프트 전문을 펼쳤는가 */
   readonly promptOpen: boolean;
   readonly prompt: string;
@@ -328,7 +330,37 @@ function ocrPane(view: SettingsView): string {
         <button type="button" class="btn" id="testHybrid">
           ${icon("i-refresh", "icon icon-sm")}<span>연결 테스트</span>
         </button>
+        <button type="button" class="btn" id="diagnoseHybrid">
+          ${icon("i-code", "icon icon-sm")}<span>터미널에서 진단</span>
+        </button>
       </div>
+      <p class="settings-hint">
+        [연결 테스트] 는 앱에서 <code>/health</code> 만 두드립니다. [터미널에서 진단] 은
+        검정 창을 띄워 <b>curl · PowerShell 로 두 번 확인한 뒤, 앱과 똑같은 인자로
+        OCR 변환과 OCR 없는 로컬 변환을 잇달아 돌립니다.</b> 창에 나온 것을 그대로
+        가져가시면 됩니다. 배치 파일은 설정 폴더에 남으니, <b>자기 문서로 다시 보려면
+        그 파일에 PDF 를 끌어다 놓으세요.</b>
+      </p>
+      ${
+        view.diagnose === null
+          ? ""
+          : view.diagnose.ok
+            ? `<div class="cli-row ok">
+                 <span class="cli-head">
+                   ${icon("i-check", "icon icon-sm")}
+                   <b>터미널 창을 띄웠습니다</b>
+                 </span>
+                 <span class="cli-detail">${esc(view.diagnose.path)}</span>
+               </div>`
+            : `<div class="cli-row miss">
+                 <span class="cli-head">
+                   ${icon("i-alert", "icon icon-sm")}
+                   <b>띄우지 못했습니다</b>
+                 </span>
+                 <span class="cli-detail">${esc(view.diagnose.detail)}</span>
+                 ${view.diagnose.path === "" ? "" : `<span class="cli-path">${esc(view.diagnose.path)} — 탐색기에서 직접 실행할 수 있습니다.</span>`}
+               </div>`
+      }
 
       ${
         view.hybrid === null

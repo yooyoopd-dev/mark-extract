@@ -69,6 +69,14 @@ export interface MarkExtractApi {
   /** hybrid OCR 서버가 살아 있는지 (7단계). url 을 주면 그 주소로, 없으면 설정값으로. */
   testHybrid(url?: string): Promise<{ ok: boolean; detail: string; ms: number }>;
 
+  /**
+   * 진단 배치를 만들어 터미널에서 띄운다 (`diagnose-ocr.bat`).
+   *
+   * /health 를 curl·PowerShell 로 두 번 두드리고, 앱과 같은 인자로 OCR 변환과 로컬
+   * 변환을 잇달아 돌린다. `path` 는 남겨 둔 배치 파일이다 — 실패해도 채워 준다.
+   */
+  diagnoseHybrid(): Promise<{ ok: boolean; path: string; detail: string }>;
+
   /* 창 — 프레임이 없어 캡션 버튼을 우리가 그린다 */
   window(action: WindowAction): Promise<void>;
 }

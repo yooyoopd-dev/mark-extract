@@ -49,6 +49,8 @@ const api: MarkExtractApi = {
   ollamaModels: () => call<{ ok: boolean; models: string[]; detail: string }>("llm:ollamaModels"),
   /** hybrid OCR 서버가 살아 있는지. url 을 주면 그 주소로, 없으면 설정값으로 본다. */
   testHybrid: (url?: string) => call<{ ok: boolean; detail: string; ms: number }>("hybrid:test", url),
+  /** 같은 확인을 터미널에서 돌리는 배치를 만들고 띄운다. */
+  diagnoseHybrid: () => call<{ ok: boolean; path: string; detail: string }>("hybrid:diagnose"),
 
   window: (action: WindowAction) => call<void>("window:action", action),
 };
