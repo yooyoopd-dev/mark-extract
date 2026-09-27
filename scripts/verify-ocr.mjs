@@ -25,7 +25,7 @@ require.cache[require.resolve("electron")] = {
 };
 
 const { testHybrid, isRemote } = require(join(root, "out/main/hybrid-http.js"));
-const { buildArgsForVerify, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
+const { buildArgs, failureReason, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -38,7 +38,7 @@ const check = (name, ok, detail = "") => {
 
 /** 인자 배열을 한 줄로. 부분 문자열로 보기 위해 앞뒤에 공백을 둔다. */
 const line = (options, hybridUrl = "") =>
-  ` ${buildArgsForVerify("C:\\docs\\a.pdf", "/out", options, hybridUrl).join(" ")} `;
+  ` ${buildArgs("C:\\docs\\a.pdf", "/out", options, hybridUrl).join(" ")} `;
 
 const DEAD = "http://127.0.0.1:59999";
 
@@ -267,7 +267,32 @@ try {
   const blank = javaLogForVerify("");
   check("빈 stderr 는 아무것도 만들지 않는다", blank.warnings.length === 0 && blank.severe.length === 0);
 
-  /* ── 6. 기존 인자가 그대로인지 ────────────────────── */
+  /* ── 6. 실패 사유 — SEVERE 가 없을 때 ────────────── */
+  //
+  // build.30 보고가 "변환 엔진이 1 로 끝났습니다" 한 줄이었다. 그 문구는 severe 가
+  // 비었을 때만 나온다 — javaLog 가 java.util.logging 모양만 모으므로 JVM 초기화
+  // 실패처럼 그 앞에서 끝난 실패는 원본까지 통째로 버려졌다.
+  console.log("\n실패 사유");
+  check(
+    "SEVERE 가 있으면 그것을 쓴다",
+    failureReason(["서버가 없습니다"], "Error occurred during initialization of VM", "", 1) === "서버가 없습니다",
+  );
+  const raw = failureReason([], "Error occurred during initialization of VM\nCould not reserve enough space", "", 1);
+  check("SEVERE 가 없으면 stderr 원본이 들어 있다", raw.includes("Could not reserve enough space"), raw);
+  check("어디서 온 것인지 적는다", raw.includes("--- stderr ---"), raw);
+  check("종료 코드도 남는다", raw.includes("1 로 끝났습니다"), raw);
+  const onlyOut = failureReason([], "   ", "Unable to access jarfile", 2);
+  check("stderr 가 비면 stdout 을 쓴다", onlyOut.includes("Unable to access jarfile"), onlyOut);
+  check("그때는 stdout 이라고 적는다", onlyOut.includes("--- stdout ---"), onlyOut);
+  const bothEmpty = failureReason([], "", "", 3);
+  check("둘 다 비면 그 사실을 적는다", bothEmpty.includes("모두 비어 있습니다") && bothEmpty.includes("3"), bothEmpty);
+  // 큰 문서의 INFO 는 수천 줄이다. 실패는 끝에 적히므로 꼬리를 남긴다.
+  const longReason = failureReason([], `${"INFO: 페이지\n".repeat(2000)}마지막 줄이 사유다`, "", 1);
+  check("긴 stderr 는 잘린다", longReason.length < 4400, String(longReason.length));
+  check("잘려도 끝부분이 남는다", longReason.includes("마지막 줄이 사유다"), longReason.slice(-60));
+  check("자른 것을 알린다", longReason.includes("앞부분 생략"), longReason.slice(0, 80));
+
+  /* ── 7. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");
   const base = line({});
   for (const flag of ["--format markdown", "--keep-line-breaks", "--markdown-with-html", "--output-dir"]) {

@@ -150,7 +150,7 @@ export async function probe(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
-function buildArgs(
+export function buildArgs(
   filePath: string,
   outputDir: string,
   options: DocOptions = {},
@@ -205,9 +205,6 @@ function buildArgs(
   return args;
 }
 
-/** 검증 전용. 인자 조립만 따로 보기 위해 내보낸다 (scripts/verify-ocr.mjs). */
-export const buildArgsForVerify = buildArgs;
-
 /**
  * java.util.logging 이 stderr 에 내는 것을 레벨별로 모은다.
  *
@@ -255,6 +252,40 @@ function javaLog(stderr: string): { warnings: Warning[]; severe: string[] } {
 /** 검증 전용. 합성 stderr 로 레벨 가르기를 직접 본다 (scripts/verify-ocr.mjs). */
 export const javaLogForVerify = javaLog;
 
+/** 사유가 길 때 남길 꼬리 길이. INFO 가 수천 줄인 문서가 있다. */
+const REASON_TAIL = 4000;
+
+const tail = (text: string): string => {
+  const body = text.trim();
+  return body.length <= REASON_TAIL ? body : `…(앞부분 생략)\n${body.slice(-REASON_TAIL)}`;
+};
+
+/**
+ * 실패 사유를 만든다.
+ *
+ * SEVERE 가 있으면 그것이 가장 정확하다. **없을 때가 문제다** — javaLog 는
+ * java.util.logging 모양(`SEVERE: …`)만 모으므로 JVM 초기화 실패, `Unable to access
+ * jarfile`, 스택 트레이스, 백신이 끼어들어 죽은 프로세스처럼 그 앞에서 끝난 실패는
+ * 한 줄도 남지 않았다. 부팅 직후 첫 변환이 "변환 엔진이 1 로 끝났습니다" 만 남기고
+ * 실패한 build.30 보고가 정확히 그 경우다 — 가장 알고 싶은 실패일수록 흔적이 없었다.
+ *
+ * 그래서 파싱을 못 하면 원본을 그대로 보여 준다. 꼬리를 남기는 이유는 실패가 끝에
+ * 적히기 때문이다.
+ */
+export function failureReason(
+  severe: readonly string[],
+  stderr: string,
+  stdout: string,
+  code: number | null,
+): string {
+  const parsed = severe.join("\n\n").trim();
+  if (parsed !== "") return parsed;
+
+  if (stderr.trim() !== "") return `변환 엔진이 ${code} 로 끝났습니다.\n\n--- stderr ---\n${tail(stderr)}`;
+  if (stdout.trim() !== "") return `변환 엔진이 ${code} 로 끝났습니다.\n\n--- stdout ---\n${tail(stdout)}`;
+  return `변환 엔진이 ${code} 로 끝났습니다. stderr·stdout 이 모두 비어 있습니다.`;
+}
+
 /** 서버가 꺼져 있을 때 CLI 가 내는 문구 (실측). 사유를 특정하는 데 쓴다. */
 const HYBRID_DOWN = /Hybrid server is not available/i;
 
@@ -290,26 +321,26 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
 
     log.push({ label: "제한 시간", value: `${Math.round(timeoutMs / 60_000)}분` });
 
-    const { code, stderr } = await runJava(args, request.signal, timeoutMs);
+    const { code, stdout, stderr } = await runJava(args, request.signal, timeoutMs);
     const elapsedMs = Date.now() - started;
     const logged = javaLog(stderr);
 
     if (code !== 0) {
       // SEVERE 가 사유를 말해 준다. 서버가 꺼졌을 때 CLI 가 내는 안내에는 설치·구동
       // 명령까지 들어 있어 그대로 보여 주는 편이 우리가 다시 쓰는 것보다 정확하다.
-      const reason = logged.severe.join("\n\n");
+      // 그것이 없으면 stderr 원본을 보여 준다 (failureReason).
+      const reason = failureReason(logged.severe, stderr, stdout, code);
       const down = HYBRID_DOWN.test(reason);
       return {
         ok: false,
         markdown: "",
         warnings: logged.warnings,
-        log: [...log, { label: "엔진 오류", value: reason || "(stderr 에 아무것도 없습니다)" }],
+        // 종료 코드를 따로 적는다. 문구에 섞어 두면 사유가 있을 때 사라졌다.
+        log: [...log, { label: "종료 코드", value: String(code) }, { label: "엔진 오류", value: reason }],
         meta: { engine: ENGINE, elapsedMs },
         error: {
           code: down ? "HYBRID_UNAVAILABLE" : "ENGINE_FAILED",
-          message: down
-            ? `hybrid OCR 서버에 연결하지 못했습니다.\n\n${reason}`
-            : reason || `변환 엔진이 ${code} 로 끝났습니다.`,
+          message: down ? `hybrid OCR 서버에 연결하지 못했습니다.\n\n${reason}` : reason,
           actions: ["retry-plain"],
         },
       };
@@ -322,7 +353,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
         ok: false,
         markdown: "",
         warnings: [],
-        log: [...log, { label: "엔진 오류", value: logged.severe.join("\n\n") || "(없음)" }],
+        log: [...log, { label: "엔진 오류", value: failureReason(logged.severe, stderr, stdout, code) }],
         meta: { engine: ENGINE, elapsedMs },
         error: {
           code: "NO_OUTPUT",
