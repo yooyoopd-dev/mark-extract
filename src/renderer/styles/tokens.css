@@ -1,0 +1,102 @@
+/* 자동 생성 파일 — 직접 수정하지 마세요.
+ * 원본: design/index.html (시각적 계약)
+ * 갱신: npm run tokens   /   검사: npm run tokens:check
+ */
+
+/* 라이트 (기본) */
+:root, [data-theme="light"] {
+  --surface-app: #FFFFFF;
+  --surface-sidebar: #F7F6F3;
+  --surface-panel: #FCFBFA;
+  --surface-card: #FFFFFF;
+  --surface-popover: #FFFFFF;
+  --surface-input: #FFFFFF;
+  --surface-button: #EBEBEA;
+  --surface-dialog: #FFFFFF;
+  --surface-code: #F7F6F3;
+  --surface-overlay: rgba(0,0,0,.30);
+  --text-primary: #37352F;
+  --text-secondary: #6B6A66;
+  --text-muted: #8C8A84;
+  --text-inverse: #FFFFFF;
+  --border-default: #E9E9E7;
+  --border-subtle: #EFEEEB;
+  --border-strong: #D9D9D6;
+  --border-input: #DCDBD7;
+  --state-hover: #EBEBEA;
+  --state-hover-subtle: #F0F0EF;
+  --state-selected: #E8F4FE;
+  --state-selected-deep: #D8ECFE;
+  --state-disabled: #F0F0EF;
+  --accent: #155DFF;
+  --accent-hover: #0D4AD6;
+  --accent-bg: #EEF3FF;
+  --accent-ring: #155DFF;
+  --ok-text: #1E7A47;
+  --ok-bg: #E7F4EC;
+  --warn-text: #A85A08;
+  --warn-bg: #FCF0E2;
+  --err-text: #C5302F;
+  --err-bg: #FCECEB;
+  --run-text: #1450DA;
+  --run-bg: #E8F1FE;
+  --idle-text: #6B6A66;
+  --idle-bg: #F0F0EF;
+  --caption-close: #C42B1C;
+  --shadow-dialog: rgba(15,15,15,.16);
+  --shadow-popover: rgba(15,15,15,.12);
+  --tk-key: #C9383E;
+  --tk-val: #2A7E4F;
+  --tk-head: #0969DA;
+  --tk-mark: #8C8A84;
+  --tk-code: #C9383E;
+}
+
+/* 다크 */
+[data-theme="dark"] {
+  --surface-app: #1F1E1B;
+  --surface-sidebar: #191814;
+  --surface-panel: #1B1A17;
+  --surface-card: #23221F;
+  --surface-popover: #292823;
+  --surface-input: #1A1916;
+  --surface-button: #34322D;
+  --surface-dialog: #272622;
+  --surface-code: #191814;
+  --surface-overlay: rgba(8,8,7,.58);
+  --text-primary: #E6E1D8;
+  --text-secondary: #B8B1A6;
+  --text-muted: #8F887D;
+  --text-inverse: #151411;
+  --border-default: #34322D;
+  --border-subtle: #2A2925;
+  --border-strong: #46433B;
+  --border-input: #3A3832;
+  --state-hover: #2D2B27;
+  --state-hover-subtle: #262520;
+  --state-selected: #1D3354;
+  --state-selected-deep: #244271;
+  --state-disabled: #262520;
+  --accent: #78A4FF;
+  --accent-hover: #9CBCFF;
+  --accent-bg: #1C2A44;
+  --accent-ring: #78A4FF;
+  --ok-text: #5FD39A;
+  --ok-bg: #1B3227;
+  --warn-text: #E9A35A;
+  --warn-bg: #362719;
+  --err-text: #FF8F88;
+  --err-bg: #3A211F;
+  --run-text: #9CBCFF;
+  --run-bg: #1C2A44;
+  --idle-text: #B8B1A6;
+  --idle-bg: #2A2925;
+  --caption-close: #C42B1C;
+  --shadow-dialog: rgba(0,0,0,.55);
+  --shadow-popover: rgba(0,0,0,.45);
+  --tk-key: #E8888C;
+  --tk-val: #86D6A6;
+  --tk-head: #8AB4F8;
+  --tk-mark: #8F887D;
+  --tk-code: #E8888C;
+}

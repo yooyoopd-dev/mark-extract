@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // sandbox: true 인 preload 는 ESM 을 쓸 수 없다 (docs/design/01-architecture.md).
+    // main 도 같은 형식으로 맞춘다.
+    "module": "CommonJS",
+    "verbatimModuleSyntax": false,
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "out"
+  },
+  "include": ["src/main", "src/preload", "src/shared"]
+}

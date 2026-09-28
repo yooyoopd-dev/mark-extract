@@ -1,0 +1,72 @@
+/* 색 이외의 토큰.
+ *
+ * 원본(design/index.html)에는 이 값들이 CSS 변수가 아니라 리터럴로 흩어져 있어
+ * 생성 대상이 아니다. docs/design/04-ui-spec.md 의 승격 표에 따라 여기서 토큰으로
+ * 올리되 값 자체는 원본 그대로 둔다.
+ */
+:root {
+  --font-sans: Inter, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+               "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 50%;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+
+  --motion-fast: .15s ease;
+  --motion-base: .2s ease;
+  --motion-panel: .22s cubic-bezier(.2, .7, .3, 1);
+  --motion-progress: .35s ease-out;
+}
+
+/* design/index.html 에서 옮긴 것. 값은 바꾸지 않는다.
+ * 디자인 export 가 시각적 계약이므로 (design/README.md) 구현이 원본과 어긋나면
+ * 구현이 틀린 것이다. 원본에 없는 것은 파일 끝에 따로 모아 둔다.
+ */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+               "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--surface-app);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--state-selected-deep); }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon-sm { width: 14px; height: 14px; }
+
+/* scrollbars — 데스크톱 밀도에 맞춘 얇은 형태 */
+.od-scroll, .scroll { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.od-scroll::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.od-scroll::-webkit-scrollbar-thumb, .scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+}
+
+
+/* 원본의 접근성 규칙 — 전환을 사실상 끈다. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

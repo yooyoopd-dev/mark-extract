@@ -1,0 +1,36 @@
+/*
+ * 첫 창이 뜨기까지의 구간 2 를 덮는다 (docs/design/05-packaging.md#첫-실행).
+ *
+ * 본체 창은 실측에서 찬 상태일 때 `ready-to-show` 까지 1.4초가 걸렸다. 그 동안
+ * 화면에 아무것도 없으면 멈춘 것과 구별되지 않는다. 이 문서는 스타일시트 둘만
+ * 싣고 스크립트가 없어 곧바로 그려진다 — 본체와 같은 무게면 의미가 없다.
+ *
+ * 압축 해제 구간(구간 1)은 NSIS 스텁의 build/splash.bmp 가 덮는다. 모양을 맞춰
+ * 두었으므로 둘이 이어져 보인다.
+ */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+.splash {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--border-default);
+  border-top: 4px solid var(--accent);
+  box-sizing: border-box;
+}
+
+.splash p { margin: 0; }
+.splash-name { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
+.splash-sub { font-size: 14px; color: var(--text-secondary); }
+.splash-wait { margin-top: 28px; font-size: 12px; color: var(--text-muted); }
