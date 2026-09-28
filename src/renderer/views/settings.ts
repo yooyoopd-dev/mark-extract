@@ -20,8 +20,8 @@ export interface SettingsView {
   readonly ollama: { ok: boolean; models: string[]; detail: string } | null;
   /** hybrid 서버 연결 테스트 결과. 아직 안 눌렀으면 null */
   readonly hybrid: { ok: boolean; detail: string; ms: number } | null;
-  /** 진단 배치를 띄운 결과. 아직 안 눌렀으면 null */
-  readonly diagnose: { ok: boolean; path: string; detail: string } | null;
+  /** OCR 서버를 띄운 결과. 아직 안 눌렀으면 null */
+  readonly ocrStart: { ok: boolean; detail: string } | null;
   /** 프롬프트 전문을 펼쳤는가 */
   readonly promptOpen: boolean;
   readonly prompt: string;
@@ -282,11 +282,34 @@ function looksRemote(url: string): boolean {
   }
 }
 
-const cmd = (id: string, text: string): string => `
+const cmd = (id: string, text: string, runId = ""): string => `
   <div class="ocr-cmd">
     <code id="${id}">${esc(text)}</code>
     <button type="button" class="btn od-fixed" data-copy="${id}">${icon("i-copy", "icon icon-sm")}<span>복사</span></button>
+    ${
+      runId === ""
+        ? ""
+        : `<button type="button" class="btn od-fixed" id="${runId}">${icon("i-zap", "icon icon-sm")}<span>실행</span></button>`
+    }
   </div>`;
+
+/**
+ * 구동 명령의 포트는 설정 주소에서 뽑는다. main 의 `ocr-server.ts` 와 같은 판정이고,
+ * `looksRemote` 가 `isRemote` 를 따라 적은 것과 같은 이유로 여기 한 번 더 적는다 —
+ * 렌더러는 main 을 import 하지 않는다.
+ *
+ * 전에는 5002 가 글로 박혀 있어서, 주소를 7000 으로 바꿔 둔 PC 에서 화면이 틀린
+ * 명령을 보여 주었다.
+ */
+function ocrStartCommand(hybridUrl: string): string {
+  let port = "5002";
+  try {
+    port = new URL(hybridUrl.trim()).port || port;
+  } catch {
+    /* 주소가 비었거나 형식이 아니면 기본 포트 */
+  }
+  return `opendataloader-pdf-hybrid --port ${port} --force-ocr --ocr-lang "ko,en"`;
+}
 
 function ocrPane(view: SettingsView): string {
   const s = view.settings;
@@ -301,7 +324,32 @@ function ocrPane(view: SettingsView): string {
         설치·구동하셔야 합니다.
       </p>
       ${cmd("ocrInstall", 'pip install "opendataloader-pdf[hybrid]"')}
-      ${cmd("ocrStart", 'opendataloader-pdf-hybrid --port 5002 --force-ocr --ocr-lang "ko,en"')}
+      ${cmd("ocrStart", ocrStartCommand(s.hybridUrl), "startOcrServer")}
+      <p class="settings-hint">
+        [실행] 을 누르면 <b>검정 터미널 창이 뜨고 그 안에서 서버가 계속 돕니다.</b> 창을
+        닫으면 서버가 꺼집니다. 앱을 닫아도 서버는 남습니다. 몇 초 뒤 아래 [연결 테스트]
+        를 눌러 확인하세요. 설치가 안 된 PC 에서는 그 창에 "명령을 찾을 수 없습니다" 가
+        남으니, 위 1번 명령을 먼저 실행하세요.
+      </p>
+      ${
+        view.ocrStart === null
+          ? ""
+          : view.ocrStart.ok
+            ? `<div class="cli-row ok">
+                 <span class="cli-head">
+                   ${icon("i-check", "icon icon-sm")}
+                   <b>터미널 창을 띄웠습니다</b>
+                 </span>
+                 <span class="cli-path">${esc(view.ocrStart.detail)}</span>
+               </div>`
+            : `<div class="cli-row miss">
+                 <span class="cli-head">
+                   ${icon("i-alert", "icon icon-sm")}
+                   <b>띄우지 못했습니다</b>
+                 </span>
+                 <span class="cli-detail">${esc(view.ocrStart.detail)}</span>
+               </div>`
+      }
 
       ${field(
         "hybridUrl",
@@ -330,37 +378,7 @@ function ocrPane(view: SettingsView): string {
         <button type="button" class="btn" id="testHybrid">
           ${icon("i-refresh", "icon icon-sm")}<span>연결 테스트</span>
         </button>
-        <button type="button" class="btn" id="diagnoseHybrid">
-          ${icon("i-code", "icon icon-sm")}<span>터미널에서 진단</span>
-        </button>
       </div>
-      <p class="settings-hint">
-        [연결 테스트] 는 앱에서 <code>/health</code> 만 두드립니다. [터미널에서 진단] 은
-        검정 창을 띄워 <b>curl · PowerShell 로 두 번 확인한 뒤, 앱과 똑같은 인자로
-        OCR 변환과 OCR 없는 로컬 변환을 잇달아 돌립니다.</b> 창에 나온 것을 그대로
-        가져가시면 됩니다. 배치 파일은 설정 폴더에 남으니, <b>자기 문서로 다시 보려면
-        그 파일에 PDF 를 끌어다 놓으세요.</b>
-      </p>
-      ${
-        view.diagnose === null
-          ? ""
-          : view.diagnose.ok
-            ? `<div class="cli-row ok">
-                 <span class="cli-head">
-                   ${icon("i-check", "icon icon-sm")}
-                   <b>터미널 창을 띄웠습니다</b>
-                 </span>
-                 <span class="cli-detail">${esc(view.diagnose.path)}</span>
-               </div>`
-            : `<div class="cli-row miss">
-                 <span class="cli-head">
-                   ${icon("i-alert", "icon icon-sm")}
-                   <b>띄우지 못했습니다</b>
-                 </span>
-                 <span class="cli-detail">${esc(view.diagnose.detail)}</span>
-                 ${view.diagnose.path === "" ? "" : `<span class="cli-path">${esc(view.diagnose.path)} — 탐색기에서 직접 실행할 수 있습니다.</span>`}
-               </div>`
-      }
 
       ${
         view.hybrid === null

@@ -609,7 +609,7 @@ const settingsView: { -readonly [K in keyof SettingsView]: SettingsView[K] } = {
   cli: null,
   ollama: null,
   hybrid: null,
-  diagnose: null,
+  ocrStart: null,
   promptOpen: false,
   prompt: "",
   version: "",
@@ -672,15 +672,15 @@ async function loadHybridStatus(): Promise<void> {
 }
 
 /**
- * 진단 배치를 만들어 터미널에서 띄운다.
+ * OCR 서버를 터미널 창에 띄운다.
  *
- * 결과를 화면에도 적는다 — 사내망 PC 에서는 화면이 유일한 진단 수단이고, 띄우기가
- * 막혔을 때 남은 배치 파일 경로를 알려 줘야 사용자가 직접 실행할 수 있다.
+ * 연결 테스트를 대신 눌러 주지 않는다. 서버가 뜨는 데 몇 초 걸리고, 우리가 바로
+ * 눌러 실패로 적으면 사용자는 서버가 안 뜬 것으로 읽는다.
  */
-async function runHybridDiagnose(): Promise<void> {
-  settingsView.diagnose = null;
+async function startOcrServer(): Promise<void> {
+  settingsView.ocrStart = null;
   paintSettings();
-  settingsView.diagnose = await window.markExtract.diagnoseHybrid();
+  settingsView.ocrStart = await window.markExtract.startOcrServer();
   paintSettings();
 }
 
@@ -778,7 +778,7 @@ function bindSettings(): void {
       return void navigator.clipboard.writeText(settingsView.prompt).then(() => toast("프롬프트를 복사했습니다."));
     }
     if (target.closest("#testHybrid")) return void loadHybridStatus();
-    if (target.closest("#diagnoseHybrid")) return void runHybridDiagnose();
+    if (target.closest("#startOcrServer")) return void startOcrServer();
 
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {

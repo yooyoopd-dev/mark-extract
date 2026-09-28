@@ -32,8 +32,7 @@ import { settings } from "./settings";
 
 const SAMPLES = ["sample-ko.pdf", "sample-ko.docx", "sample-ko.xlsx", "sample-ko.xls", "sample-ko.pptx"];
 
-/** 동봉 시험 자료 폴더. 진단 배치(diagnose-bat.ts)도 같은 것을 쓴다. */
-export function fixturesDir(): string {
+function fixturesDir(): string {
   return app.isPackaged ? join(process.resourcesPath, "fixtures") : join(app.getAppPath(), "test/fixtures");
 }
 

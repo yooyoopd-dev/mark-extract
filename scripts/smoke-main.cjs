@@ -358,9 +358,9 @@ app.whenReady().then(async () => {
       if (!selfTest.dialogFits) failures.push("자체 점검 창이 화면보다 큼 — 뒷부분을 볼 방법이 없습니다");
     }
 
-    // 2-f. 설정 → OCR 절의 버튼 두 개. [연결 테스트] 는 앱에서 /health 만 보고,
-    //      [터미널에서 진단] 은 같은 확인을 검정 창에서 앱과 같은 인자로 돌린다
-    //      (build.30 요청). 누르지는 않는다 — 리눅스에 cmd.exe 가 없다.
+    // 2-f. 설정 → OCR 절. 구동 명령 옆의 [실행] 이 서버를 터미널 창에 띄우고,
+    //      명령의 포트는 설정 주소를 따른다 (build.32 요청). 누르지는 않는다 —
+    //      리눅스에 cmd.exe 가 없고, 눌리면 서버를 띄우려 한다.
     const ocrPane = await win.webContents.executeJavaScript(`(async () => {
       const wait = () => new Promise((r) => setTimeout(r, 120));
       document.querySelector("#tbSettings")?.click();
@@ -369,16 +369,33 @@ app.whenReady().then(async () => {
       await wait();
       const r = {
         test: !!document.querySelector("#testHybrid"),
-        diagnose: !!document.querySelector("#diagnoseHybrid"),
-        label: (document.querySelector("#diagnoseHybrid")?.textContent ?? "").trim(),
+        start: !!document.querySelector("#startOcrServer"),
+        label: (document.querySelector("#startOcrServer")?.textContent ?? "").trim(),
+        command: (document.querySelector("#ocrStart")?.textContent ?? "").trim(),
       };
+
+      // 포트가 설정 주소를 따라가는지. 전에는 5002 가 글로 박혀 있어 주소를 바꿔 둔
+      // PC 에서 화면이 틀린 명령을 보여 주었다.
+      await window.markExtract.setSettings({ hybridUrl: "http://127.0.0.1:7111" });
+      document.querySelector("#tbSettings").click();
+      await wait();
+      r.moved = (document.querySelector("#ocrStart")?.textContent ?? "").trim();
+      await window.markExtract.setSettings({ hybridUrl: "" });
+
       document.querySelector("#settingsOverlay").hidden = true;
       return r;
     })()`);
 
     if (!ocrPane.test) failures.push("설정 OCR 절에 연결 테스트 버튼이 없습니다");
-    if (!ocrPane.diagnose) failures.push("설정 OCR 절에 터미널 진단 버튼이 없습니다");
-    else if (!ocrPane.label.includes("터미널")) failures.push(`터미널 진단 버튼 문구가 다릅니다: ${ocrPane.label}`);
+    if (!ocrPane.start) failures.push("설정 OCR 절에 서버 실행 버튼이 없습니다");
+    else if (ocrPane.label !== "실행") failures.push(`서버 실행 버튼 문구가 다릅니다: ${ocrPane.label}`);
+    // 스모크는 hybridUrl 을 비워 두고 시작한다 → 기본 포트가 적혀 있어야 한다.
+    if (!ocrPane.command.includes("opendataloader-pdf-hybrid --port 5002")) {
+      failures.push(`구동 명령이 다릅니다: ${ocrPane.command}`);
+    }
+    if (!ocrPane.moved?.includes("--port 7111")) {
+      failures.push(`구동 명령의 포트가 설정 주소를 따르지 않습니다: ${ocrPane.moved}`);
+    }
 
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을

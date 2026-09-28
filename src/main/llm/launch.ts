@@ -39,7 +39,7 @@ const PROBE_MS = 15000;
  * `%` 는 막지 못한다 — cmd 는 `^%` 도 확장한다. 모델 이름이나 경로에 `%VAR%` 가
  * 있으면 확장된다. cross-spawn 도 같은 한계를 가진다.
  */
-function quote(arg: string): string {
+export function quote(arg: string): string {
   const inner = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1");
   return `"${inner}"`.replace(/[<>"^|&?*]/g, "^$&");
 }

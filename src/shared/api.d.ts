@@ -70,12 +70,12 @@ export interface MarkExtractApi {
   testHybrid(url?: string): Promise<{ ok: boolean; detail: string; ms: number }>;
 
   /**
-   * 진단 배치를 만들어 터미널에서 띄운다 (`diagnose-ocr.bat`).
+   * OCR 서버 구동 명령을 터미널 창에 띄운다 (build.32 요청).
    *
-   * /health 를 curl·PowerShell 로 두 번 두드리고, 앱과 같은 인자로 OCR 변환과 로컬
-   * 변환을 잇달아 돌린다. `path` 는 남겨 둔 배치 파일이다 — 실패해도 채워 준다.
+   * 프로세스를 앱에 붙여 두지 않는다 — 서버는 앱보다 오래 살아야 하고, 창을 닫는
+   * 것이 서버를 끄는 방법이다. 살아 있는지는 `testHybrid` 가 본다.
    */
-  diagnoseHybrid(): Promise<{ ok: boolean; path: string; detail: string }>;
+  startOcrServer(): Promise<{ ok: boolean; detail: string }>;
 
   /* 창 — 프레임이 없어 캡션 버튼을 우리가 그린다 */
   window(action: WindowAction): Promise<void>;

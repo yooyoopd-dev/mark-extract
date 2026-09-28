@@ -9,7 +9,7 @@
  */
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -21,12 +21,11 @@ const work = mkdtempSync(join(tmpdir(), "markextract-verify-ocr-"));
 const userData = join(work, "userData");
 mkdirSync(userData, { recursive: true });
 require.cache[require.resolve("electron")] = {
-  // getAppPath 는 diagnose-bat.ts 가 동봉 시험 자료를 찾는 데 쓴다 (self-test.fixturesDir).
-  exports: { app: { isPackaged: false, getPath: () => userData, getAppPath: () => root } },
+  exports: { app: { isPackaged: false, getPath: () => userData } },
 };
 
 const { testHybrid, isRemote } = require(join(root, "out/main/hybrid-http.js"));
-const { buildBatch, writeBatch } = require(join(root, "out/main/diagnose-bat.js"));
+const { serverCommand, serverCommandLine, serverPort, startServer } = require(join(root, "out/main/ocr-server.js"));
 const { buildArgs, failureReason, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 
 const failures = [];
@@ -294,55 +293,30 @@ try {
   check("잘려도 끝부분이 남는다", longReason.includes("마지막 줄이 사유다"), longReason.slice(-60));
   check("자른 것을 알린다", longReason.includes("앞부분 생략"), longReason.slice(0, 80));
 
-  /* ── 7. 진단 배치 ──────────────────────────────────── */
+  /* ── 7. OCR 서버를 터미널에 띄운다 ────────────────── */
   //
-  // 터미널 실행이 앱 실행과 **같은 명령**이어야 진단이 된다. 인자가 갈라지면
-  // 터미널에서 되는데 앱에서 안 되는 이유를 여기서 만들어 내는 셈이다.
-  console.log("\n진단 배치");
-  const URL = "http://127.0.0.1:5002";
-  const bat = buildBatch({
-    java: "C:\\Program Files\\Mark Extract\\resources\\jre\\bin\\java.exe",
-    jar: "C:\\Program Files\\Mark Extract\\resources\\lib\\opendataloader-pdf-cli.jar",
-    hybridUrl: URL,
-    sample: "C:\\Program Files\\Mark Extract\\resources\\fixtures\\sample-ko.pdf",
-    ocrArgs: buildArgs("%TARGET%", "%OUTROOT%", { ocr: true }, URL),
-    localArgs: buildArgs("%TARGET%", "%OUTROOT%", {}, ""),
-  });
+  // 화면은 구동 명령을 글로만 보여 주고 복사 버튼만 있었다. 포트도 5002 가 박혀
+  // 있어 주소를 바꿔 둔 PC 에서 틀린 명령을 보여 주었다 (build.32 요청).
+  console.log("\nOCR 서버 실행");
+  const cmdOf = (url) => serverCommand(url).join(" ");
 
-  check("코드페이지를 UTF-8 로 바꾼다", bat.includes("chcp 65001"), "");
-  check("창이 닫히지 않는다", /\r\npause\r\n/.test(bat), "");
-  check("CRLF 로 쓴다", bat.includes("\r\n") && !/[^\r]\n/.test(bat), "");
-  check("java 경로가 따옴표 안에 있다", bat.includes('set "JAVA=C:\\Program Files'), "");
-  check("JAR 경로가 따옴표 안에 있다", bat.includes('set "JAR=C:\\Program Files'), "");
-  check("curl 로 /health 를 두드린다", bat.includes('curl.exe -sS -i --max-time 10 "%URL%/health"'), "");
-  check("PowerShell 로 한 번 더 두드린다", bat.includes("Invoke-WebRequest"), "");
-  check("OCR 절이 --hybrid-url 을 쓴다", bat.includes(`"--hybrid-url" "${URL}"`), "");
-  check("OCR 절과 로컬 절의 출력 폴더가 다르다", bat.includes("markextract-diag") && bat.includes('"%OUTROOT%\\hybrid"') && bat.includes('"%OUTROOT%\\local"'), "");
-  check("로컬 절에는 --hybrid 가 없다", bat.split("4) 로컬 변환")[1]?.includes("--hybrid") === false, "");
-  check("끌어다 놓은 파일을 쓴다", bat.includes('set "TARGET=%~1"') && bat.includes('"%TARGET%"'), "");
-  check("인자가 없으면 동봉 자료로 떨어진다", bat.includes('if "%TARGET%"=="" set "TARGET=C:\\Program Files'), "");
-  // 페이지 구분자에 %page-number% 가 들어 있다. 늘리지 않으면 cmd 가 먹어 버린다.
-  check("% 를 %% 로 늘린다", bat.includes("%%page-number%%"), "");
-  check("늘리지 않은 %page-number% 는 없다", !/[^%]%page-number%[^%]/.test(bat), "");
-  // 페이지 구분자·표 인자가 앱과 같아야 한다.
-  for (const flag of ['"--markdown-with-html"', '"--keep-line-breaks"', '"--image-output" "external"']) {
-    check(`${flag} 가 앱과 같다`, bat.includes(flag), "");
+  check("주소의 포트를 따른다", cmdOf("http://127.0.0.1:7000").includes("--port 7000"), cmdOf("http://127.0.0.1:7000"));
+  check("기본 주소는 5002", cmdOf("http://127.0.0.1:5002").includes("--port 5002"), "");
+  for (const [name, url] of [["빈 주소", ""], ["포트 없는 주소", "http://ocr.example"], ["형식이 아닌 값", "그냥글자"]]) {
+    check(`${name} 이면 5002 로 떨어진다`, serverPort(url) === "5002", serverPort(url));
   }
+  check("실행 파일 이름", cmdOf("").startsWith("opendataloader-pdf-hybrid "), cmdOf(""));
+  check("--force-ocr 를 붙인다", cmdOf("").includes("--force-ocr"), "");
+  check("--ocr-lang ko,en 을 붙인다", cmdOf("").includes("--ocr-lang ko,en"), "");
+  // 화면에 띄우는 줄은 사람이 복사해 쓰는 것이라 ko,en 을 따옴표로 감싼다.
+  check("화면용 줄은 ko,en 을 감싼다", serverCommandLine("").includes('--ocr-lang "ko,en"'), serverCommandLine(""));
 
-  const noUrl = buildBatch({
-    java: "j.exe",
-    jar: "a.jar",
-    hybridUrl: "",
-    sample: "s.pdf",
-    ocrArgs: buildArgs("%TARGET%", "%OUTROOT%", { ocr: true }, ""),
-    localArgs: buildArgs("%TARGET%", "%OUTROOT%", {}, ""),
-  });
-  check("주소가 없으면 health·OCR 절이 빠진다", !noUrl.includes("curl.exe") && !noUrl.includes("3) OCR 변환"), "");
-  check("그래도 로컬 절은 남는다", noUrl.includes("4) 로컬 변환"), "");
-
-  const written = await writeBatch();
-  check("설정 폴더에 남는다", written.endsWith("diagnose-ocr.bat") && existsSync(written), written);
-  check("파일 내용이 배치다", readFileSync(written, "utf8").startsWith("@echo off"), "");
+  // win32 가 아니면 띄우지 않는다. 이 검증이 도는 곳이 리눅스라 그대로 확인된다.
+  const here = startServer("http://127.0.0.1:5002");
+  check("Windows 가 아니면 띄우지 않는다", here.ok === false, JSON.stringify(here));
+  check("그때 명령을 글로 알려 준다", here.detail.includes("opendataloader-pdf-hybrid"), here.detail);
+  // 플랫폼을 넘겨 win32 경로를 흉내 내지는 않는다 — spawn 이 실제로 cmd.exe 를
+  // 찾으려 하고, 이 컨테이너에는 없다. 창을 띄우는 것 자체는 사내 PC 실측이다.
 
   /* ── 8. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");
