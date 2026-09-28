@@ -311,12 +311,15 @@ try {
   // 화면에 띄우는 줄은 사람이 복사해 쓰는 것이라 ko,en 을 따옴표로 감싼다.
   check("화면용 줄은 ko,en 을 감싼다", serverCommandLine("").includes('--ocr-lang "ko,en"'), serverCommandLine(""));
 
-  // win32 가 아니면 띄우지 않는다. 이 검증이 도는 곳이 리눅스라 그대로 확인된다.
-  const here = startServer("http://127.0.0.1:5002");
+  // win32 가 아닌 분기. **플랫폼을 반드시 넘긴다** — 이 검증은 Windows 러너에서도
+  // 돌고, 거기서 실제 플랫폼으로 부르면 진짜로 cmd 창이 뜬다. build.32 의 첫 판이
+  // 그렇게 깨졌다(러너 정리 로그에 orphan cmd·conhost 가 남았다). 사람 없는 러너에
+  // 창을 남기는 검증은 쓰지 않는다.
+  const here = startServer("http://127.0.0.1:5002", "linux");
   check("Windows 가 아니면 띄우지 않는다", here.ok === false, JSON.stringify(here));
   check("그때 명령을 글로 알려 준다", here.detail.includes("opendataloader-pdf-hybrid"), here.detail);
-  // 플랫폼을 넘겨 win32 경로를 흉내 내지는 않는다 — spawn 이 실제로 cmd.exe 를
-  // 찾으려 하고, 이 컨테이너에는 없다. 창을 띄우는 것 자체는 사내 PC 실측이다.
+  // win32 분기는 단언하지 않는다. 부르는 것이 곧 창을 띄우는 것이라 검증에서 부를
+  // 수 없다. 창이 뜨는 것은 사내 PC 실측이다.
 
   /* ── 8. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");
