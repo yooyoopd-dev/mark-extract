@@ -265,7 +265,9 @@ jobs:
           }
           if ($results[0].Exit -ne 0) { throw "자체 점검 실패 (exit $($results[0].Exit))" }
           if ($text -notmatch '동봉 JRE') { throw "동봉 JRE 를 쓰지 않았습니다 — 시스템 java 로 샜습니다." }
-          if ($text -notmatch '5/5 성공') { throw "다섯 형식을 모두 변환하지 못했습니다." }
+          # 개수를 박지 않는다 — 시험 자료가 5건에서 7건(메일 2건, build.34)으로 늘었을 때
+          # 이 줄이 '5/5 성공' 을 찾다가 7/7 성공한 빌드를 떨어뜨렸다. 성공 수 = 전체 수만 본다.
+          if ($text -notmatch '\b(\d+)/\1 성공') { throw "모든 시험 자료를 변환하지 못했습니다." }
 
           $mb = Get-Content out/verify/zip-size-mb.txt -Raw
           Write-Host ("첫 실행 {0}초 · 두 번째 {1}초 · zip {2} MB" -f $results[0].Sec, $results[1].Sec, $mb.Trim())
