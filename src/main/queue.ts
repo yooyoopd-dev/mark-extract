@@ -61,12 +61,12 @@ function snippetOf(result: ParseResult, markdown: string): string {
     .slice(0, 160);
 }
 
-/** 오래된 완료 항목부터 덜어낸다. 진행 중·실패·즐겨찾기는 건드리지 않는다. */
+/** 오래된 완료 항목부터 덜어낸다. 진행 중·실패는 건드리지 않는다. */
 function trim(): void {
   if (entries.size <= MAX_DOCS) return;
 
   const removable = [...entries.values()]
-    .filter((e) => e.view.status === "done" && !e.view.star)
+    .filter((e) => e.view.status === "done")
     .sort((a, b) => a.view.addedAt - b.view.addedAt);
 
   for (const entry of removable) {
@@ -130,7 +130,6 @@ async function addFile(path: string, options?: DocOptions): Promise<DocView | nu
     kind,
     size,
     status: "queued",
-    star: false,
     addedAt: Date.now(),
     options: options ?? defaultOptions(),
     result: null,
@@ -214,13 +213,6 @@ export function remove(id: string): void {
 
   const at = pending.indexOf(id);
   if (at >= 0) pending.splice(at, 1);
-  emit();
-}
-
-export function star(id: string, value: boolean): void {
-  const entry = entries.get(id);
-  if (!entry) return;
-  entry.view.star = value;
   emit();
 }
 

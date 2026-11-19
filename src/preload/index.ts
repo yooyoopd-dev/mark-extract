@@ -21,7 +21,6 @@ const api: MarkExtractApi = {
   markdown: (id) => call<string>("doc:markdown", id),
   add: (paths) => call<AddResult>("doc:add", paths),
   remove: (id) => call<void>("doc:remove", id),
-  star: (id, value) => call<void>("doc:star", id, value),
   cancel: (id) => call<void>("doc:cancel", id),
   reconvert: (id, options: DocOptions) => call<void>("doc:reconvert", id, options),
   pickFiles: () => call<AddResult>("doc:pick"),

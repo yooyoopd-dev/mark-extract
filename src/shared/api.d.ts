@@ -32,7 +32,6 @@ export interface MarkExtractApi {
   /** 파일이든 폴더든. 폴더는 안을 훑어 지원 형식만 넣는다. */
   add(paths: readonly string[]): Promise<AddResult>;
   remove(id: string): Promise<void>;
-  star(id: string, value: boolean): Promise<void>;
   cancel(id: string): Promise<void>;
   reconvert(id: string, options: DocOptions): Promise<void>;
   pickFiles(): Promise<AddResult>;

@@ -12,7 +12,7 @@ function emptyPanel(): string {
     <div class="empty">
       ${icon("i-files", "icon")}
       <p class="empty-title">문서를 선택하세요</p>
-      <p class="empty-sub">왼쪽 목록에서 고르거나 파일을 끌어다 놓으세요.</p>
+      <p class="empty-sub">목록에서 고르거나 파일을 끌어다 놓으세요.</p>
     </div>`;
 }
 
@@ -138,7 +138,8 @@ export function renderViewer(
     return;
   }
 
-  crumbs.innerHTML = `<span>${KIND_LABEL[doc.kind]}</span>${icon("i-chev", "icon icon-sm")}<b>${esc(doc.name)}</b>`;
+  // 형식 뒤의 꺾쇠(⌄)는 눌러도 아무 일이 없는 장식이었다. 이름과 형식만 둔다.
+  crumbs.innerHTML = `<b class="cur" title="${esc(doc.name)}">${esc(doc.name)}</b><span class="seg">${KIND_LABEL[doc.kind]}</span>`;
   const warnings = doc.result?.warnings.length ?? 0;
   warnCount.textContent = warnings > 0 ? String(warnings) : "";
 

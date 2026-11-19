@@ -3,7 +3,7 @@
  *
  * 문서 목록은 main 이 들고 있다 (docs/design/01-architecture.md). 여기 있는
  * `docs` 는 main 이 보낸 스냅샷의 사본일 뿐이라 렌더러가 고치지 않는다 —
- * 즐겨찾기든 상태든 IPC 로 부탁하고 돌아온 스냅샷을 다시 그린다.
+ * 상태를 바꿀 일은 IPC 로 부탁하고 돌아온 스냅샷을 다시 그린다.
  *
  * 마크다운 본문은 스냅샷에 싣지 않는다(문서당 수백 KB). 선택한 문서 것만
  * doc:markdown 으로 따로 받아 `body` 에 둔다.
@@ -14,17 +14,20 @@ export type { DocKind, DocOptions, DocStatus, DocView, WatchFolder };
 export type Doc = DocView;
 export type Tab = "render" | "source" | "log";
 export type Sort = "modified" | "name" | "size";
+/** 목록 위 칩. 대기와 변환 중은 사용자에게 같은 뜻이라 "진행 중" 하나로 묶는다. */
+export type StatusFilter = "all" | "active" | "done" | "failed";
 
 export interface State {
-  view: string;
   selected: string | null;
   query: string;
-  status: DocStatus | "all";
+  status: StatusFilter;
   sort: Sort;
   tab: Tab;
   theme: "system" | "light" | "dark";
   /** 좁은 창에서 목록/뷰어 중 무엇을 보일지 */
   pane: "list" | "viewer";
+  /** 변환 옵션 패널을 열었는가. 기본은 닫힘 (build.36). */
+  inspector: boolean;
   watch: WatchFolder[];
   /** 선택한 문서의 본문. key 가 어긋나면 낡은 것이다. */
   body: { key: string; markdown: string } | null;
@@ -48,7 +51,6 @@ export interface State {
 export const docs: Doc[] = [];
 
 export const state: State = {
-  view: "all",
   selected: null,
   query: "",
   status: "all",
@@ -56,6 +58,7 @@ export const state: State = {
   tab: "render",
   theme: "system",
   pane: "list",
+  inspector: false,
   watch: [],
   body: null,
   draft: null,
@@ -80,12 +83,13 @@ export const markdown = (): string => {
   return doc && state.body?.key === bodyKey(doc) ? state.body.markdown : "";
 };
 
+/** 카드와 뷰어 머리에 적는 형식 이름. 확장자 그대로가 가장 덜 헷갈린다. */
 export const KIND_LABEL: Record<DocKind, string> = {
   pdf: "PDF",
-  docx: "DOC",
-  xlsx: "XLS",
+  docx: "DOCX",
+  xlsx: "XLSX",
   xls: "XLS",
-  pptx: "PPT",
+  pptx: "PPTX",
   html: "HTML",
   eml: "EML",
 };
@@ -123,55 +127,31 @@ export function isDirty(doc: Doc): boolean {
   return keys.some((k) => state.draft?.options[k] !== doc.options[k]);
 }
 
-export const counts = () => ({
-  queue: docs.filter((d) => d.status === "queued" || d.status === "run").length,
-  all: docs.length,
-  done: docs.filter((d) => d.status === "done").length,
-  failed: docs.filter((d) => d.status === "failed").length,
-  star: docs.filter((d) => d.star).length,
-  pdf: docs.filter((d) => d.kind === "pdf").length,
-  docx: docs.filter((d) => d.kind === "docx").length,
-  xlsx: docs.filter((d) => d.kind === "xlsx" || d.kind === "xls").length,
-  pptx: docs.filter((d) => d.kind === "pptx").length,
-  html: docs.filter((d) => d.kind === "html").length,
-  eml: docs.filter((d) => d.kind === "eml").length,
-});
-
-const VIEWS: Record<string, { title: string; test: (d: Doc) => boolean }> = {
-  queue: { title: "변환 큐", test: (d) => d.status === "queued" || d.status === "run" },
-  all: { title: "전체 문서", test: () => true },
-  done: { title: "완료", test: (d) => d.status === "done" },
-  failed: { title: "실패", test: (d) => d.status === "failed" },
-  star: { title: "즐겨찾기", test: (d) => d.star },
+const FILTER: Record<StatusFilter, (d: Doc) => boolean> = {
+  all: () => true,
+  active: (d) => d.status === "queued" || d.status === "run",
+  done: (d) => d.status === "done",
+  failed: (d) => d.status === "failed",
 };
 
-export function viewDef(view: string): { title: string; test: (d: Doc) => boolean } {
-  const known = VIEWS[view];
-  if (known) return known;
-
-  if (view.startsWith("kind:")) {
-    const kind = view.slice(5) as DocKind;
-    const label = KIND_LABEL[kind] ?? "문서";
-    return {
-      title: `${label} 문서`,
-      test: (d) => (kind === "xlsx" ? d.kind === "xlsx" || d.kind === "xls" : d.kind === kind),
-    };
-  }
-  return VIEWS["all"]!;
-}
+/** 칩 옆 숫자. 사이드바가 하던 일을 칩이 한다. */
+export const counts = (): Record<StatusFilter, number> => ({
+  all: docs.length,
+  active: docs.filter(FILTER.active).length,
+  done: docs.filter(FILTER.done).length,
+  failed: docs.filter(FILTER.failed).length,
+});
 
 const ORDER: Record<DocStatus, number> = { run: 0, queued: 1, failed: 2, done: 3 };
 
 export function visibleDocs(): Doc[] {
-  const def = viewDef(state.view);
   const q = state.query.trim().toLowerCase();
 
   // 검색은 이름과 미리보기까지만 본다. 본문 전체는 렌더러에 없다 — 전문 검색이
   // 필요해지면 main 에 채널을 하나 더 여는 쪽이 맞다.
   const list = docs.filter(
     (d) =>
-      def.test(d) &&
-      (state.status === "all" || d.status === state.status) &&
+      FILTER[state.status](d) &&
       (!q || d.name.toLowerCase().includes(q) || d.snippet.toLowerCase().includes(q)),
   );
 

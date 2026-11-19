@@ -5,7 +5,8 @@
 
 .app {
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr) 28px;
+  /* build.36: 하단 상태바를 뺐다 (Electron 버전·평균 시간처럼 쓰지 않는 것만 있었다). */
+  grid-template-rows: 40px minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   background: var(--surface-app);
@@ -37,76 +38,63 @@
 .caption button:hover { background: var(--state-hover); }
 .caption button.close:hover { background: var(--caption-close); color: #fff; }
 .caption svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.1; }
-.nav-toggle { display: none; }
 
 /* --- 워크스페이스 그리드 --- */
 .workspace {
   position: relative;
   display: grid;
-  grid-template-columns: 248px 336px minmax(0, 1fr) 300px;
+  /* build.36: 사이드바를 걷어 내 목록 | 결과 두 칸. 변환 옵션을 열면 세 번째 칸이 생긴다. */
+  grid-template-columns: 340px minmax(0, 1fr);
   min-height: 0;
   background: var(--surface-app);
 }
 .workspace > * { min-width: 0; min-height: 0; }
 
 
-.statusbar {
-  display: flex; align-items: center; gap: 2px;
-  padding: 0 4px 0 8px; background: var(--surface-sidebar);
-  border-top: 1px solid var(--border-default); font-size: 11.5px; color: var(--text-secondary);
-}
-.sb {
-  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px;
-  border-radius: 4px; color: inherit; white-space: nowrap; font-variant-numeric: tabular-nums;
-}
-button.sb:hover { background: var(--state-hover); color: var(--text-primary); }
-.sb .icon { width: 12px; height: 12px; }
-.sb .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--ok-text); }
-.sb .dot.run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.sb-right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
-.sb-hide { display: inline-flex; }
+/* components.css 의 .inspector { display: grid } 가 뒤에 실리므로 한 단계 더 좁게 건다. */
+.workspace > .inspector { display: none; }
+.app[data-inspector="open"] .workspace { grid-template-columns: 340px minmax(0, 1fr) 300px; }
+.app[data-inspector="open"] .inspector { display: grid; }
 
 
 @media (max-width: 1440px) {
-  .workspace { grid-template-columns: 232px 312px minmax(0,1fr) 284px; }
-  .reading { padding: 28px 32px 72px; }
-}
-@media (max-width: 1200px) {
-  .workspace { grid-template-columns: 232px 312px minmax(0,1fr); }
-  .inspector {
-    position: absolute; top: 0; bottom: 0; right: 0; width: 300px; z-index: 30;
-    transform: translateX(102%); box-shadow: -10px 0 30px var(--shadow-dialog);
-  }
-  .app[data-inspector="open"] .inspector { transform: none; }
-  .inspector-open { display: inline-grid; }
-  .insp-close { display: inline-grid; }
-}
-@media (min-width: 1201px) { .insp-close { display: none; } }
-@media (max-width: 1024px) {
   .workspace { grid-template-columns: 312px minmax(0,1fr); }
-  .sidebar {
-    position: absolute; top: 0; bottom: 0; left: 0; width: 248px; z-index: 30;
-    transform: translateX(-102%); box-shadow: 10px 0 30px var(--shadow-dialog);
-  }
-  .app[data-sidebar="open"] .sidebar { transform: none; }
-  .nav-toggle { display: inline-grid; }
-  .sb-hide { display: none; }
+  .app[data-inspector="open"] .workspace { grid-template-columns: 312px minmax(0,1fr) 284px; }
+  .viewer .reading { padding: 28px 32px 72px; }
 }
+/* 좁으면 옵션 패널이 칸을 차지하지 않고 결과 위에 덮인다. */
+@media (max-width: 1200px) {
+  .app[data-inspector="open"] .workspace { grid-template-columns: 312px minmax(0,1fr); }
+  .workspace > .inspector {
+    display: grid;
+    position: absolute; top: 0; bottom: 0; right: 0; width: 300px; z-index: 30;
+    transform: translateX(102%);
+  }
+  /* 그림자는 열렸을 때만. 닫힌 드로어의 그림자가 화면 오른쪽 끝에 새어 보였다. */
+  .app[data-inspector="open"] .inspector { transform: none; box-shadow: -10px 0 30px var(--shadow-dialog); }
+}
+@media (max-width: 1024px) {
+  .workspace,
+  .app[data-inspector="open"] .workspace { grid-template-columns: 280px minmax(0,1fr); }
+}
+/* 이 블록의 선택자는 한 단계 좁게 쓴다. components.css 가 뒤에 실려 같은 무게의
+   규칙(.viewer { display: grid } 등)이 이것을 덮었다 — build.36 에서 700px 창에
+   목록과 뷰어가 위아래로 함께 나오고 [목록으로] 버튼이 보이지 않던 원인이다. */
 @media (max-width: 768px) {
-  .workspace { grid-template-columns: minmax(0,1fr); }
-  .listpane, .viewer { display: none; }
+  .workspace,
+  .app[data-inspector="open"] .workspace { grid-template-columns: minmax(0,1fr); }
+  .workspace > .listpane, .workspace > .viewer { display: none; }
   .app[data-pane="list"] .listpane { display: grid; }
   .app[data-pane="viewer"] .viewer { display: grid; }
-  .listpane { border-right: 0; }
-  .back-to-list { display: inline-grid; }
-  .sidebar { width: min(248px, 82vw); }
-  .inspector { width: min(300px, 88vw); }
-  .reading { padding: 24px 20px 64px; }
-  .reading-inner { font-size: 16px; }
-  .reading-inner h1 { font-size: 24px; }
+  .workspace > .listpane { border-right: 0; }
+  .viewer-bar .back-to-list { display: inline-grid; }
+  .workspace > .inspector { width: min(300px, 88vw); }
+  .viewer .reading { padding: 24px 20px 64px; }
+  .viewer .reading-inner h1 { font-size: 24px; }
 }
 @media (max-width: 520px) {
   .tb-name { display: none; }
+  .tb-tool span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

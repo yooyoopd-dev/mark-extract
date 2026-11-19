@@ -24,7 +24,6 @@ export interface DocView {
   readonly kind: DocKind;
   readonly size: number;
   readonly status: DocStatus;
-  readonly star: boolean;
   readonly addedAt: number;
   readonly options: DocOptions;
   /** 변환 결과. 마크다운 본문은 크므로 여기 싣지 않는다 — doc:markdown 으로 따로 받는다. */

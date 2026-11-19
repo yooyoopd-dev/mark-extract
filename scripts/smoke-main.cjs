@@ -44,6 +44,9 @@ const VIEWPORTS = [
   { name: "1440", width: 1440, height: 900 },
   { name: "1366", width: 1366, height: 768 },
   { name: "1024", width: 1024, height: 768 },
+  // build.36: 768 이하의 한 칸 전환은 한 번도 재지 않았고, 그 사이 목록과 뷰어가
+  // 위아래로 함께 나오고 있었다.
+  { name: "700", width: 700, height: 800 },
 ];
 
 function expectedTokens(selector) {
@@ -171,10 +174,10 @@ app.whenReady().then(async () => {
     if (api !== wantApi) failures.push(`window.markExtract 표면이 다름 (${api})`);
 
     // 렌더러 ES 모듈 체인이 실제로 실행됐는지. 여기가 비면 import 가 깨진 것이다.
-    // JS 가 그리는 네 영역이 모두 채워져야 한다.
+    // JS 가 그리는 세 영역이 모두 채워져야 한다 (build.36 에서 사이드바를 걷어 냈다).
     const mounted = await win.webContents.executeJavaScript(`(() => {
       const filled = (sel) => (document.querySelector(sel)?.children.length ?? 0) > 0;
-      return { nav: filled("#nav"), list: filled("#docList"), panel: filled("#panel"), insp: filled("#inspBody") };
+      return { list: filled("#docList"), panel: filled("#panel"), insp: filled("#inspBody") };
     })()`);
     for (const [name, ok] of Object.entries(mounted)) {
       if (!ok) failures.push(`${name} 이 그려지지 않음 — 렌더러 모듈 로드 실패로 보입니다`);
@@ -329,21 +332,64 @@ app.whenReady().then(async () => {
       if (!toggled.stillOn) failures.push("재변환 뒤에 토글이 도로 꺼졌습니다");
     }
 
-    // 2-d. 캡션바 정리 (build.25 요청). 아무 일도 하지 않던 주 메뉴를 지우고,
-    //      설정을 우측 상단으로 옮겼다.
-    const chrome = await win.webContents.executeJavaScript(`(() => ({
-      menu: document.querySelectorAll(".tb-menu").length,
-      gear: document.querySelectorAll("#sbSettings").length,
-      settings: !!document.querySelector("#tbSettings"),
-      label: (document.querySelector("#tbSettings")?.textContent ?? "").trim(),
-      icons: document.querySelectorAll("#tbSettings svg").length,
-    }))()`);
+    // 2-d. 화면 정리 (build.36 요청). 뺀 것이 정말 빠졌는지, 남긴 것이 제자리에
+    //      있는지. 캡션바의 [설정] 은 build.25 에 글자만 두었는데, 이번 요청에서
+    //      "세팅 아이콘이 이상하다" 는 지적을 받아 톱니를 다시 그려 붙였다.
+    const chrome = await win.webContents.executeJavaScript(`(() => {
+      const gone = ["#nav", ".sidebar", ".statusbar", "#paletteOverlay", "#paletteOpen", "#themeToggle", "#starBtn", "#navToggle"]
+        .filter((sel) => document.querySelector(sel));
+      const gear = document.querySelector("#i-gear path");
+      const box = gear ? gear.getBBox() : null;
+      return {
+        gone,
+        settings: (document.querySelector("#tbSettings")?.textContent ?? "").trim(),
+        settingsIcon: document.querySelector("#tbSettings use")?.getAttribute("href") ?? "",
+        add: !!document.querySelector(".titlebar #addFile"),
+        // 톱니 경로가 viewBox(24) 를 꽉 채우는지. 전의 경로는 손으로 이은 곡선이 어긋나 있었다.
+        gearBox: box ? [box.x, box.y, box.width, box.height].map((n) => Math.round(n * 10) / 10) : null,
+        chips: [...document.querySelectorAll(".chips .chip")].map((c) => c.dataset.status),
+        allCount: document.querySelector('.chip [data-count="all"]')?.textContent ?? "",
+        cards: document.querySelectorAll("#docList .doc").length,
+        snippets: document.querySelectorAll("#docList .doc-snip").length,
+      };
+    })()`);
 
-    if (chrome.menu !== 0) failures.push("캡션바에 주 메뉴가 남아 있습니다");
-    if (chrome.gear !== 0) failures.push("상태바에 설정 톱니가 남아 있습니다");
-    if (!chrome.settings) failures.push("캡션바에 설정 버튼이 없습니다");
-    if (chrome.label !== "설정") failures.push(`설정 버튼 문구가 다릅니다: ${chrome.label}`);
-    if (chrome.icons !== 0) failures.push("설정 버튼에 아이콘이 붙어 있습니다");
+    if (chrome.gone.length > 0) failures.push(`뺀 것이 남아 있습니다: ${chrome.gone.join(", ")}`);
+    if (chrome.settings !== "설정") failures.push(`설정 버튼 문구가 다릅니다: ${chrome.settings}`);
+    if (chrome.settingsIcon !== "#i-gear") failures.push(`설정 버튼에 톱니가 없습니다: ${chrome.settingsIcon}`);
+    if (!chrome.add) failures.push("캡션바에 [파일 추가] 가 없습니다");
+    if (!chrome.gearBox || chrome.gearBox[2] < 18 || chrome.gearBox[3] < 18) {
+      failures.push(`톱니 경로가 viewBox 를 채우지 않습니다: ${JSON.stringify(chrome.gearBox)}`);
+    }
+    // 상태 보기는 칩 하나로 모였다. 대기·변환 중은 "진행 중" 하나다.
+    if (chrome.chips.join(",") !== "all,active,done,failed") failures.push(`상태 칩이 다릅니다: ${chrome.chips.join(",")}`);
+    if (chrome.allCount !== String(chrome.cards)) failures.push(`전체 칩 숫자(${chrome.allCount})가 카드 수(${chrome.cards})와 다릅니다`);
+    if (chrome.snippets !== 0) failures.push("목록 카드에 미리보기 두 줄이 남아 있습니다");
+
+    // 2-d'. 변환 옵션 패널은 기본 닫힘이고 [옵션] 으로 연다. 넓은 창에서는 세 번째 칸이다.
+    win.setContentSize(1440, 900);
+    await new Promise((r) => setTimeout(r, 200));
+    const panelState = await win.webContents.executeJavaScript(`(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 120));
+      const insp = document.querySelector(".inspector");
+      const cols = () => getComputedStyle(document.querySelector(".workspace")).gridTemplateColumns.split(" ").length;
+      const r = { closedHidden: getComputedStyle(insp).display === "none", closedCols: cols() };
+      document.querySelector("#inspectorToggle").click();
+      await wait();
+      r.openShown = getComputedStyle(insp).display !== "none";
+      r.openCols = cols();
+      r.pressed = document.querySelector("#inspectorToggle").getAttribute("aria-pressed");
+      return r;
+    })()`);
+    if (!panelState.closedHidden) failures.push("변환 옵션 패널이 처음부터 열려 있습니다");
+    if (panelState.closedCols !== 2) failures.push(`닫힌 상태의 칸 수가 ${panelState.closedCols} 입니다 (기대 2)`);
+    if (!panelState.openShown) failures.push("[옵션] 을 눌러도 패널이 열리지 않습니다");
+    if (panelState.openCols !== 3) failures.push(`열린 상태의 칸 수가 ${panelState.openCols} 입니다 (기대 3)`);
+    if (panelState.pressed !== "true") failures.push("[옵션] 버튼이 눌린 상태로 표시되지 않습니다");
+    const optionsShot = await win.webContents.capturePage();
+    writeFileSync(join(SHOTS, "w1440-options.png"), optionsShot.toPNG());
+    shots.push(join("out/smoke", "w1440-options.png"));
+    await win.webContents.executeJavaScript(`document.querySelector("#inspectorToggle").click()`);
 
     // 2-e. 자체 점검 창이 실제로 스크롤되는지 (build.29 실측). 맨 .dialog 는 높이
     //      제약이 없어 본문이 내용만큼 늘어나고, 그러면 .body 의 overflow-y:auto 가
@@ -470,7 +516,7 @@ app.whenReady().then(async () => {
         var bodyOverflow = getComputedStyle(document.body).overflowX;
         var userScrollable = ["visible", "auto", "scroll"].indexOf(bodyOverflow) !== -1;
 
-        var drawers = [".sidebar", ".inspector"]
+        var drawers = [".inspector"]
           .map(function (sel) { return document.querySelector(sel); })
           .filter(function (el) { return el && getComputedStyle(el).position === "absolute"; });
 
@@ -491,7 +537,12 @@ app.whenReady().then(async () => {
           escapes: escapes,
           cols: getComputedStyle(document.querySelector(".workspace")).gridTemplateColumns.split(" ").length,
           inspectorDrawer: getComputedStyle(document.querySelector(".inspector")).position === "absolute",
-          sidebarDrawer: getComputedStyle(document.querySelector(".sidebar")).position === "absolute"
+          // 목록 안쪽이 목록 칸을 밀고 나가는가 (build.36: 1024 에서 14px 넘쳤다).
+          shownPanes: [".listpane", ".viewer"].filter(function (sel) {
+            return getComputedStyle(document.querySelector(sel)).display !== "none";
+          }).length,
+          listOverflow: Math.round(document.querySelector("#docList").getBoundingClientRect().right
+            - document.querySelector(".listpane").getBoundingClientRect().right)
         };
       })()`);
 
@@ -500,10 +551,11 @@ app.whenReady().then(async () => {
         failures.push(`${vp.name}px 에서 화면을 벗어난 요소: ${check.escapes.join(", ")}`);
       }
 
-      // 1200 이하에서 인스펙터가, 1024 이하에서 사이드바가 드로어가 된다.
+      // 1200 이하에서 변환 옵션 패널이 덮는 드로어가 된다. 사이드바는 build.36 에서 없앴다.
       if (vp.width <= 1200 && !check.inspectorDrawer) failures.push(`${vp.name}px 에서 인스펙터가 드로어로 바뀌지 않음`);
       if (vp.width > 1200 && check.inspectorDrawer) failures.push(`${vp.name}px 에서 인스펙터가 드로어가 되면 안 됨`);
-      if (vp.width <= 1024 && !check.sidebarDrawer) failures.push(`${vp.name}px 에서 사이드바가 드로어로 바뀌지 않음`);
+      if (check.listOverflow > 0) failures.push(`${vp.name}px 에서 목록이 칸을 ${check.listOverflow}px 넘침`);
+      if (vp.width <= 768 && check.shownPanes !== 1) failures.push(`${vp.name}px 에서 목록·뷰어가 ${check.shownPanes}개 함께 보임 (기대 1)`);
 
       const image = await win.webContents.capturePage();
       writeFileSync(join(SHOTS, `w${vp.name}.png`), image.toPNG());

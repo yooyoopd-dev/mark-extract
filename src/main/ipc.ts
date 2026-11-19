@@ -69,7 +69,6 @@ export function registerIpc(): void {
   ipcMain.handle("doc:markdown", (_e, id: string) => queue.markdownOf(id));
   ipcMain.handle("doc:add", (_e, paths: string[]) => queue.add(paths));
   ipcMain.handle("doc:remove", (_e, id: string) => queue.remove(id));
-  ipcMain.handle("doc:star", (_e, id: string, value: boolean) => queue.star(id, value === true));
   ipcMain.handle("doc:cancel", (_e, id: string) => queue.cancel(id));
   ipcMain.handle("doc:reconvert", (_e, id: string, options: unknown) =>
     queue.reconvert(id, cleanOptions(options)),

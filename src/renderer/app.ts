@@ -5,12 +5,10 @@
  * 동작은 IPC 로 부탁한 뒤 돌아온 스냅샷을 다시 그린다. 렌더러가 문서를 직접
  * 고치는 곳은 없다 — 그래야 감시 폴더로 들어온 문서와 화면이 어긋나지 않는다.
  */
-import { renderSidebar } from "./views/sidebar.js";
 import { renderList } from "./views/list.js";
 import { logText, renderViewer } from "./views/viewer.js";
 import { renderInspector } from "./views/inspector.js";
 import { initToasts, toast } from "./views/toast.js";
-import { openPalette, type Command } from "./views/palette.js";
 import { renderSettings, type Pane, type SettingsView } from "./views/settings.js";
 import {
   bodyKey,
@@ -36,9 +34,7 @@ const $$ = <T extends HTMLElement = HTMLElement>(selector: string, root: ParentN
   Array.from(root.querySelectorAll<T>(selector));
 
 const app = $("#app");
-const nav = $("#nav");
 const docList = $("#docList");
-const listTitle = $("#listTitle");
 const panel = $("#panel");
 const dirtyBar = $("#dirtyBar");
 const crumbs = $("#crumbs");
@@ -47,59 +43,24 @@ const inspBody = $("#inspBody");
 
 /* ── 테마 ───────────────────────────────────────────────── */
 
-const prefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
-
+// 테마를 바꾸는 곳은 설정 → 일반 하나다 (build.36 에서 캡션바 버튼을 뺐다).
 function applyTheme(): void {
   const root = document.documentElement;
   if (state.theme === "system") delete root.dataset["theme"];
   else root.dataset["theme"] = state.theme;
-
-  const dark = state.theme === "dark" || (state.theme === "system" && prefersDark());
-  $("#themeLabel").textContent = dark ? "라이트 모드" : "다크 모드";
-  $("#themeIcon").innerHTML = `<use href="#${dark ? "i-sun" : "i-moon"}"/>`;
-  $("#themeToggle").setAttribute("aria-pressed", String(dark));
-}
-
-function toggleTheme(): void {
-  const dark = state.theme === "dark" || (state.theme === "system" && prefersDark());
-  state.theme = dark ? "light" : "dark";
-  applyTheme();
-  void window.markExtract.setSettings({ theme: state.theme });
 }
 
 /* ── 렌더 ───────────────────────────────────────────────── */
 
-function renderStatusbar(): void {
-  const running = docs.filter((d) => d.status === "run").length;
-  const queued = docs.filter((d) => d.status === "queued").length;
-  const done = docs.filter((d) => d.status === "done" && d.result);
-
-  $("#sbQueue").textContent =
-    running > 0 ? `${running}건 변환 중` : queued > 0 ? `${queued}건 대기` : "큐 대기 없음";
-  $("#sbDot").className = `dot${running > 0 ? " run" : ""}`;
-
-  const average =
-    done.length > 0 ? done.reduce((sum, d) => sum + (d.result?.meta.elapsedMs ?? 0), 0) / done.length : 0;
-  $("#sbSpeed").textContent = average > 0 ? `평균 ${(average / 1000).toFixed(1)}초/문서` : "—";
-
-  const selected = getDoc(state.selected);
-  $("#sbEngine").textContent = selected?.result?.meta.engine ?? "—";
-  const body = markdown();
-  $("#sbTokens").textContent = body === "" ? "" : `${body.length.toLocaleString("ko-KR")}자`;
-
-  $("#sbWatchText").textContent =
-    state.watch.length === 0 ? "감시 폴더 없음" : `감시 폴더 ${state.watch.length}곳`;
-}
-
 function render(): void {
   app.dataset["pane"] = state.pane;
+  app.dataset["inspector"] = state.inspector ? "open" : "closed";
+  $("#inspectorToggle").setAttribute("aria-pressed", String(state.inspector));
 
   const selected = getDoc(state.selected);
-  renderSidebar(nav);
-  renderList(docList, listTitle);
+  renderList(docList);
   renderViewer(panel, crumbs, warnCount, dirtyBar, selected);
   renderInspector(inspBody, selected);
-  renderStatusbar();
 
   for (const tab of $$<HTMLButtonElement>(".tab")) {
     const isSelected = tab.dataset["tab"] === state.tab;
@@ -110,10 +71,12 @@ function render(): void {
     chip.setAttribute("aria-pressed", String(chip.dataset["status"] === state.status));
   }
 
-  $("#starBtn").setAttribute("aria-pressed", String(selected?.star ?? false));
   const usable = selected?.status === "done";
   $<HTMLButtonElement>("#copyBtn").disabled = !usable;
   $<HTMLButtonElement>("#exportBtn").disabled = !usable;
+  for (const id of ["#reconvertBtn", "#revealBtn", "#deleteBtn"]) {
+    $<HTMLButtonElement>(id).disabled = selected === null;
+  }
 }
 
 /* ── main 의 큐와 맞추기 ────────────────────────────────── */
@@ -254,28 +217,6 @@ function editOption(doc: Doc, patch: DocOptions): void {
 }
 
 function bind(): void {
-  nav.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-
-    const unwatch = target.closest<HTMLElement>("[data-unwatch]")?.dataset["unwatch"];
-    if (unwatch) {
-      void window.markExtract.removeWatch(unwatch).then((watch) => {
-        state.watch = watch;
-        toast("감시를 해제했습니다.");
-        render();
-      });
-      return;
-    }
-
-    const item = target.closest<HTMLElement>(".nav-item");
-    if (!item?.dataset["view"]) return;
-    state.view = item.dataset["view"];
-    render();
-  });
-
-  $("#addWatch").addEventListener("click", () => void pickWatch());
-  $("#sbWatch").addEventListener("click", () => void pickWatch());
-
   docList.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     if (target.closest("#emptyAction")) {
@@ -333,7 +274,9 @@ function bind(): void {
 
   $("#sortBtn").addEventListener("click", () => {
     state.sort = state.sort === "modified" ? "name" : state.sort === "name" ? "size" : "modified";
-    toast(`정렬: ${{ modified: "추가순", name: "이름순", size: "크기순" }[state.sort]}`);
+    const label = { modified: "추가순", name: "이름순", size: "크기순" }[state.sort];
+    $("#sortBtn").title = `정렬: ${label}`;
+    toast(`정렬: ${label}`);
     render();
   });
 
@@ -361,10 +304,6 @@ function bind(): void {
     state.pane = "list";
     render();
   });
-  $("#starBtn").addEventListener("click", () => {
-    const doc = getDoc(state.selected);
-    if (doc) void window.markExtract.star(doc.id, !doc.star).then(refresh);
-  });
   $("#reconvertBtn").addEventListener("click", () => {
     const doc = getDoc(state.selected);
     if (doc) reconvert(doc);
@@ -384,7 +323,7 @@ function bind(): void {
     });
   });
   $("#exportBtn").addEventListener("click", () => openExport());
-  $("#moreBtn").addEventListener("click", () => {
+  $("#revealBtn").addEventListener("click", () => {
     const doc = getDoc(state.selected);
     if (doc) void window.markExtract.reveal(doc.path);
   });
@@ -414,8 +353,6 @@ function bind(): void {
     if (!doc) return;
 
     if (target.closest("#inspReconvert")) return reconvert(doc);
-    if (target.closest("#inspCopy")) return void copyMarkdown();
-    if (target.closest("#inspExport")) return openExport();
 
     const sw = target.closest<HTMLElement>(".sw");
     if (!sw || sw.hasAttribute("disabled")) return;
@@ -461,21 +398,14 @@ function bind(): void {
     }
   });
 
-  // 드로어 (좁은 창)
-  $("#navToggle").addEventListener("click", () => {
-    const open = app.dataset["sidebar"] === "open";
-    app.dataset["sidebar"] = open ? "closed" : "open";
-    $("#navToggle").setAttribute("aria-expanded", String(!open));
-  });
-  $("#inspectorOpen").addEventListener("click", () => (app.dataset["inspector"] = "open"));
-  $("#inspClose").addEventListener("click", () => (app.dataset["inspector"] = "closed"));
-  $("#scrim").addEventListener("click", () => {
-    app.dataset["sidebar"] = "closed";
-    app.dataset["inspector"] = "closed";
-  });
-
-  $("#themeToggle").addEventListener("click", toggleTheme);
-  $("#paletteOpen").addEventListener("click", showPalette);
+  // 변환 옵션 패널. 넓은 창에서는 세 번째 칸, 좁은 창에서는 덮는 드로어다.
+  const setInspector = (open: boolean): void => {
+    state.inspector = open;
+    render();
+  };
+  $("#inspectorToggle").addEventListener("click", () => setInspector(!state.inspector));
+  $("#inspClose").addEventListener("click", () => setInspector(false));
+  $("#scrim").addEventListener("click", () => setInspector(false));
 
   bindExport();
   bindSettings();
@@ -818,40 +748,12 @@ function bindSettings(): void {
   });
 }
 
-/* ── 커맨드 팔레트 ──────────────────────────────────────── */
-
-function showPalette(): void {
-  const commands: Command[] = [
-    { id: "add", label: "파일 추가", icon: "i-plus", hint: "Ctrl+O", run: () => void pickFiles() },
-    { id: "watch", label: "감시 폴더 추가", icon: "i-folder", run: () => void pickWatch() },
-    { id: "theme", label: "테마 전환", icon: "i-moon", run: toggleTheme },
-    { id: "copy", label: "Markdown 복사", icon: "i-copy", run: () => void copyMarkdown() },
-    { id: "export", label: "Markdown 내보내기", icon: "i-down", hint: "Ctrl+E", run: openExport },
-    { id: "settings", label: "설정", icon: "i-gear", hint: "Ctrl+,", run: () => void openSettings() },
-    { id: "selfTest", label: "자체 점검", icon: "i-check", run: () => void runSelfTest() },
-    {
-      id: "reconvert",
-      label: "재변환",
-      icon: "i-refresh",
-      run: () => {
-        const doc = getDoc(state.selected);
-        if (doc) reconvert(doc);
-      },
-    },
-  ];
-
-  openPalette($("#paletteOverlay"), $<HTMLInputElement>("#paletteInput"), $("#paletteList"), commands, selectDoc);
-}
-
 /* ── 전역 키보드 · 드래그 앤 드롭 ───────────────────────── */
 
 function globalKeys(): void {
   document.addEventListener("keydown", (event) => {
     const mod = event.ctrlKey || event.metaKey;
-    if (mod && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      showPalette();
-    } else if (mod && event.key.toLowerCase() === "o") {
+    if (mod && event.key.toLowerCase() === "o") {
       event.preventDefault();
       void pickFiles();
     } else if (mod && event.key.toLowerCase() === "e") {
@@ -863,8 +765,6 @@ function globalKeys(): void {
     } else if (event.key === "Escape") {
       if (!settingsOverlay.hidden) closeSettings();
       if (!exportOverlay.hidden) closeExport();
-      app.dataset["sidebar"] = "closed";
-      app.dataset["inspector"] = "closed";
     }
   });
 }
@@ -903,7 +803,6 @@ initToasts($("#toasts"));
 bind();
 globalKeys();
 dragAndDrop();
-$("#sbVersion").textContent = `Electron ${window.markExtract.version}`;
 
 // main 이 큐를 바꿀 때마다(변환 진행, 감시 폴더 유입) 스냅샷이 온다.
 window.markExtract.onChanged(apply);

@@ -3,49 +3,6 @@
  * 구현이 틀린 것이다. 원본에 없는 것은 파일 끝에 따로 모아 둔다.
  */
 
-.sidebar {
-  display: grid; grid-template-rows: minmax(0,1fr) auto;
-  background: var(--surface-sidebar);
-  border-right: 1px solid var(--border-default);
-  transition: transform .22s cubic-bezier(.2,.7,.3,1);
-}
-.nav { padding: 8px 8px 16px; }
-.nav-group + .nav-group { margin-top: 14px; }
-.nav-head {
-  display: flex; align-items: center; gap: 4px; width: 100%;
-  padding: 4px 8px; margin-bottom: 2px; border-radius: 5px;
-  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--text-muted);
-}
-.nav-head:hover { background: var(--state-hover); color: var(--text-secondary); }
-.nav-head .chev { transition: transform .15s ease; }
-.nav-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
-.nav-head .count { margin-left: auto; font-variant-numeric: tabular-nums; }
-.nav-body { display: grid; gap: 1px; }
-.nav-head[aria-expanded="false"] + .nav-body { display: none; }
-
-.nav-item {
-  position: relative; display: flex; align-items: center; gap: 8px; width: 100%;
-  min-height: 30px; padding: 4px 8px 4px 10px; border-radius: 5px;
-  font-size: 14px; color: var(--text-primary); text-align: left;
-}
-.nav-item:hover { background: var(--state-hover); }
-.nav-item .label { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-item .count {
-  flex: none; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums;
-}
-.nav-item[aria-current="true"] { background: var(--state-selected); color: var(--accent); font-weight: 500; }
-.nav-item[aria-current="true"]::before {
-  content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px;
-  border-radius: 0 3px 3px 0; background: var(--accent);
-}
-.nav-item[aria-current="true"] .count { color: var(--accent); }
-.nav-item .pill {
-  flex: none; min-width: 20px; padding: 0 6px; border-radius: 10px;
-  background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
 .fmt {
   flex: none; width: 26px; height: 16px; border-radius: 3px;
   display: grid; place-items: center; font-size: 8px; font-weight: 700; letter-spacing: .02em;
@@ -58,14 +15,6 @@
 .fmt.html { background: #5B4B9A; }
 .fmt.eml  { background: #4A6572; }
 .fmt.lg { width: 32px; height: 20px; font-size: 9px; border-radius: 4px; }
-
-.sidebar-foot { border-top: 1px solid var(--border-default); padding: 8px; }
-.watch-add {
-  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px;
-  padding: 4px 10px; border-radius: 5px; font-size: 13px; color: var(--text-secondary);
-}
-.watch-add:hover { background: var(--state-hover); color: var(--text-primary); }
-
 
 .listpane {
   display: grid; grid-template-rows: auto auto minmax(0,1fr);
@@ -117,15 +66,14 @@
 .doc[aria-selected="true"]::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent);
 }
-.doc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.doc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
 .doc-name {
   flex: 1 1 0; min-width: 0; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.doc-star { flex: none; color: var(--warn-text); }
-.doc-snip { font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); margin-bottom: 8px; }
-.doc-foot { display: flex; align-items: center; gap: 8px; }
-.doc-time { margin-left: auto; flex: none; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+/* build.36: 이름·상태 한 줄, 형식·크기·시각 한 줄. 실패만 사유 한 줄을 더한다. */
+.doc-meta { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.doc-error { margin: 4px 0 0; font-size: 12px; color: var(--err-text); }
 
 .status {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
@@ -170,7 +118,7 @@
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
 }
 .vbar-div { width: 1px; height: 18px; background: var(--border-default); margin: 0 4px; flex: none; }
-.back-to-list, .inspector-open { display: none; }
+.back-to-list { display: none; }
 
 .tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border-default); }
 .tab {
@@ -353,9 +301,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   position: absolute; inset: 0; background: var(--surface-overlay); z-index: 25;
   opacity: 0; pointer-events: none; transition: opacity .2s ease;
 }
-.app[data-sidebar="open"] .scrim, .app[data-inspector="open"] .scrim { opacity: 1; pointer-events: auto; }
+.app[data-inspector="open"] .scrim { opacity: 1; pointer-events: auto; }
 @media (min-width: 1201px) { .app[data-inspector="open"] .scrim { opacity: 0; pointer-events: none; } }
-@media (min-width: 1025px) { .app[data-sidebar="open"] .scrim { opacity: 0; pointer-events: none; } }
 
 .overlay {
   position: fixed; inset: 0; z-index: 60; display: grid; background: var(--surface-overlay);
@@ -365,26 +312,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
 
-.palette {
-  place-self: start center; width: min(620px, 92vw); margin-top: 12vh;
-  background: var(--surface-popover); border: 1px solid var(--border-default); border-radius: 10px;
-  box-shadow: 0 18px 48px var(--shadow-dialog); overflow: hidden; animation: rise .18s cubic-bezier(.2,.7,.3,1);
-}
-.palette-in { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 48px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); }
-.palette-in input { flex: 1 1 0; min-width: 0; border: 0; background: none; outline: none; font-size: 15px; color: var(--text-primary); }
-.palette-in input::placeholder { color: var(--text-muted); }
-.palette-in kbd { flex: none; }
-.palette-list { max-height: min(420px, 52vh); overflow-y: auto; padding: 6px; }
-.palette-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
-.pcmd {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px;
-  padding: 6px 10px; border-radius: 6px; text-align: left; color: var(--text-primary);
-}
-.pcmd .t { flex: 1 1 0; min-width: 0; font-size: 13.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.pcmd .s { flex: none; font-size: 11.5px; color: var(--text-muted); }
-.pcmd[data-active="true"] { background: var(--state-selected); color: var(--accent); }
-.pcmd[data-active="true"] .s { color: var(--accent); }
-.palette-foot { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border-default); background: var(--surface-sidebar); font-size: 11.5px; color: var(--text-secondary); }
 kbd {
   display: inline-block; min-width: 18px; padding: 1px 5px; border-radius: 4px;
   border: 1px solid var(--border-strong); border-bottom-width: 2px;
@@ -441,21 +368,11 @@ legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-
 
 /* 원본에 없는 것 — 원본이 style 속성으로 준 값들을 클래스로 옮겼다.
    CSP 를 style-src 'self' 로 잠갔기 때문이다. 값은 원본 그대로다. */
-.nav-toggle { margin: 6px 2px 6px 6px; }
 .icon-btn.tiny { width: 20px; height: 20px; }
-.insp-head > .icon { color: var(--text-secondary); }
-.insp-doc { --od-gap: 10px; margin-bottom: 12px; }
-.insp-doc-name { font-size: 13px; font-weight: 600; }
 .insp-switch-last { margin-bottom: 12px; }
-.insp-actions { --od-gap: 8px; }
 .log-head { --od-gap: 8px; margin-bottom: 12px; }
 .log-note { font-size: 12.5px; color: var(--text-secondary); }
 
-/* 감시 폴더 목록 (5단계). 원본에는 "감시 폴더 추가" 버튼만 있고 목록이 없었다.
-   .nav-item 의 모양을 그대로 쓰고, 해제 버튼만 hover·focus 에서 드러낸다. */
-.watch-item .icon { flex: none; color: var(--text-secondary); }
-.watch-drop { flex: none; width: 20px; height: 20px; opacity: 0; }
-.watch-item:hover .watch-drop, .watch-drop:focus-visible { opacity: 1; }
 
 /* 바꾸지 못한 HTML 표 (html-in-markdown.ts 가 실패한 경우). 태그가 글자로 흐르는
    대신 무슨 일이 있었는지 알리고 원본을 접어 보인다. */
@@ -537,3 +454,19 @@ legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-
 
 .watch-line { --od-gap: 8px; padding: 6px 0; font-size: 13px; }
 .watch-line .icon { color: var(--text-secondary); }
+
+/* build.36 — 사이드바를 걷어 낸 뒤 생긴 것들. */
+.chip .n { margin-left: 2px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] .n { color: var(--accent); }
+.crumbs .cur { font-size: 14px; font-weight: 600; }
+.opt-toggle { margin: 0 0 0 2px; height: 28px; }
+.opt-toggle[aria-pressed="true"] { background: var(--state-selected); color: var(--accent); }
+.insp-empty { margin: 16px 0; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary); }
+/* 스위치 줄이 설명 두 줄을 달면 다음 줄 제목과 붙어 읽혔다 (build.36 스크린샷). */
+.switchrow + .switchrow { margin-top: 10px; }
+/* 목록 칸을 280px 로 좁히자 검색창(입력칸의 기본 폭)이 칸을 14px 밀고 나갔다.
+   암묵 열은 내용의 최소 폭을 따르므로 열을 칸 폭에 묶는다. */
+.list-filter { grid-template-columns: minmax(0, 1fr); }
+.chip { padding: 0 8px; }
+/* 진행 막대가 <span> 이라 높이·폭이 무시되어 보이지 않았다. */
+.bar { display: block; }

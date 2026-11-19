@@ -1,6 +1,12 @@
-/** 중앙 문서 목록. design/index.html 의 renderList 를 옮겼다. */
+/**
+ * 문서 목록. design/index.html 의 renderList 에서 출발했다.
+ *
+ * build.36 에서 카드를 줄였다. 이름과 상태가 첫 줄, 형식·크기·시각이 둘째 줄이다.
+ * 미리보기 두 줄은 뺐다 — 본문은 바로 옆 뷰어에 있다. 실패한 문서만 사유 한 줄을
+ * 남긴다. 그것은 뷰어를 열기 전에 알아야 하는 것이다.
+ */
 import { icon, esc } from "../markdown.js";
-import { KIND_LABEL, STATUS, state, viewDef, visibleDocs, type Doc } from "../state.js";
+import { counts, KIND_LABEL, STATUS, state, visibleDocs, type Doc } from "../state.js";
 
 function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -21,32 +27,37 @@ function card(doc: Doc): string {
   return `
     <button class="doc" role="option" data-id="${doc.id}" aria-selected="${state.selected === doc.id}" tabindex="-1">
       <div class="doc-top">
-        <span class="badge ${doc.kind}">${KIND_LABEL[doc.kind]}</span>
         <span class="doc-name od-truncate">${esc(doc.name)}</span>
-        ${doc.star ? `<span class="doc-star">${icon("i-star", "icon icon-sm")}</span>` : ""}
-      </div>
-      <p class="doc-snip od-clamp-2">${esc(doc.snippet)}</p>
-      <div class="doc-foot">
         <span class="status ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
-        <span class="doc-meta">${sizeLabel(doc.size)}</span>
-        <span class="doc-meta doc-time">${timeLabel(doc.addedAt)}</span>
       </div>
+      <div class="doc-meta">${KIND_LABEL[doc.kind]} · ${sizeLabel(doc.size)} · ${timeLabel(doc.addedAt)}</div>
+      ${doc.status === "failed" ? `<p class="doc-error od-truncate">${esc(doc.snippet)}</p>` : ""}
       ${doc.status === "run" ? `<span class="bar"><i data-progress="${doc.progress ?? 0}"></i></span>` : ""}
     </button>`;
 }
 
-export function renderList(host: HTMLElement, title: HTMLElement): void {
-  title.textContent = viewDef(state.view).title;
+/** 칩 옆 숫자. 0 이면 비워 둔다 — "실패 0" 은 읽을 거리가 아니다. */
+function paintCounts(): void {
+  const c = counts();
+  for (const el of document.querySelectorAll<HTMLElement>(".chip [data-count]")) {
+    const n = c[el.dataset["count"] as keyof typeof c];
+    el.textContent = n > 0 ? String(n) : "";
+  }
+}
+
+export function renderList(host: HTMLElement): void {
+  paintCounts();
 
   const list = visibleDocs();
   if (list.length === 0) {
     const searching = state.query.trim() !== "" || state.status !== "all";
     host.innerHTML = `
       <div class="empty">
-        ${icon(searching ? "i-search" : "i-inbox", "icon")}
         <p class="empty-title">${searching ? "조건에 맞는 문서가 없습니다" : "아직 문서가 없습니다"}</p>
         <p class="empty-sub">${
-          searching ? "검색어나 상태 필터를 바꿔 보세요." : "PDF · DOCX · XLSX · XLS · PPTX 를 끌어다 놓으세요."
+          searching
+            ? "검색어나 상태 필터를 바꿔 보세요."
+            : "파일을 이 창에 끌어다 놓으세요. PDF · DOCX · XLSX · XLS · PPTX · HTML · EML 을 Markdown 으로 바꿉니다."
         }</p>
         <button class="btn" id="emptyAction">${searching ? "필터 초기화" : "파일 추가"}</button>
       </div>`;

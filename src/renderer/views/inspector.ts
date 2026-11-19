@@ -1,6 +1,6 @@
 /**
- * 우측 인스펙터. design/index.html 의 renderInspector 를 옮기되 설계 문서가 정한
- * 개편을 반영한다 (docs/design/04-ui-spec.md).
+ * 변환 옵션 패널 (원본의 인스펙터). design/index.html 의 renderInspector 를 옮기되
+ * 설계 문서가 정한 개편을 반영한다 (docs/design/04-ui-spec.md).
  *
  *   원본 ocr 토글        → hybrid 서버 연결 시에만 활성 (7단계)
  *   엔진 선택 추가       → 로컬 / LLM (6단계)
@@ -10,16 +10,8 @@
  * 원본의 선택지는 시제품이라 없는 값을 담고 있었다.
  */
 import { esc, icon } from "../markdown.js";
-import { effectiveOptions, KIND_LABEL, state, STATUS, type Doc, type DocOptions } from "../state.js";
+import { effectiveOptions, state, type Doc, type DocOptions } from "../state.js";
 import type { Provider } from "../../shared/parse";
-
-function sizeLabel(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
-
-const cell = (term: string, value: string): string =>
-  `<div><dt>${esc(term)}</dt><dd>${esc(value)}</dd></div>`;
 
 const sel = (value: string, want: string): string => (value === want ? " selected" : "");
 
@@ -75,78 +67,27 @@ function llmOptions(options: DocOptions): string {
     </div>`;
 }
 
-export function renderInspector(host: HTMLElement, doc: Doc | null): void {
-  if (!doc) {
-    host.innerHTML = `
-      <div class="insp-sec">
-        <h3>선택된 문서 없음</h3>
-        <p>문서를 선택하면 메타데이터와 추출 옵션이 표시됩니다.</p>
-      </div>`;
-    return;
-  }
-
-  const result = doc.result;
-  const status = STATUS[doc.status];
-  const unit = doc.kind === "pptx" ? "슬라이드" : doc.kind === "xlsx" || doc.kind === "xls" ? "시트" : "쪽";
-
-  const options = effectiveOptions(doc);
-  // 표 감지 방식은 opendataloader 의 --table-method 라서 PDF 에만 있다.
-  const pdfOnly = doc.kind === "pdf" ? "" : "disabled";
-  const engine = options.engine ?? "local";
+/** PDF 에만 걸리는 것들 (opendataloader 인자). 다른 형식에서는 아예 그리지 않는다. */
+function pdfOptions(options: DocOptions): string {
   // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
   const strip = options.includeHeaderFooter !== true;
 
-  // OCR 은 PDF 전용이고, hybrid 서버가 살아 있을 때만 켤 수 있다. 주소가 적혀
-  // 있는 것과 서버가 도는 것은 다르다 — 설정의 연결 테스트가 자물쇠다.
-  const ocrReady = doc.kind === "pdf" && state.hybridOk;
+  // OCR 은 hybrid 서버가 살아 있을 때만 켤 수 있다. 주소가 적혀 있는 것과 서버가
+  // 도는 것은 다르다 — 설정의 연결 테스트가 자물쇠다.
+  const ocrReady = state.hybridOk;
   const ocr = options.ocr === true && ocrReady;
   const structTree = options.useStructTree === true;
   // 실측: 태그드 PDF 에 둘 다 주면 CLI 가 구조 트리를 쓰고 서버를 부르지 않는다.
   const shadowed = ocr && structTree;
 
-  host.innerHTML = `
+  return `
     <div class="insp-sec">
-      <h3>문서</h3>
-      <div class="od-row insp-doc">
-        <span class="fmt lg ${doc.kind} od-fixed" aria-hidden="true">${KIND_LABEL[doc.kind]}</span>
-        <span class="od-fill od-truncate insp-doc-name" title="${esc(doc.name)}">${esc(doc.name)}</span>
-      </div>
-      <dl class="meta">
-        ${cell("상태", status.label)}
-        ${cell("분량", result?.meta.pages === undefined ? "—" : `${result.meta.pages}${unit}`)}
-        ${cell("용량", sizeLabel(doc.size))}
-        ${cell("처리 시간", result ? `${(result.meta.elapsedMs / 1000).toFixed(1)}초` : "—")}
-        ${cell("경고", result ? `${result.warnings.length}건` : "—")}
-        ${cell("엔진", result?.meta.engine ?? "—")}
-      </dl>
-    </div>
-
-    <div class="insp-sec">
-      <h3>변환 엔진</h3>
-      <div class="opt">
-        <label for="optEngine">처리 방식</label>
-        <select id="optEngine" data-opt="engine">
-          <option value="local"${sel(engine, "local")}>로컬 엔진</option>
-          <option value="llm"${sel(engine, "llm")}>LLM 엔진</option>
-        </select>
-        <span class="desc">${
-          engine === "llm"
-            ? "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다."
-            : "로컬 엔진은 같은 문서에서 항상 같은 결과를 냅니다."
-        }</span>
-      </div>
-      ${engine === "llm" ? llmOptions(options) : ""}
-    </div>
-
-    <div class="insp-sec">
-      <h3>추출 옵션</h3>
+      <h3>PDF</h3>
       <div class="switchrow">
         <span class="txt"><b>OCR 사용</b><span>${
           ocrReady
-            ? "텍스트 레이어가 없는 스캔 문서를 이미지에서 인식합니다. 시간이 오래 걸립니다."
-            : doc.kind === "pdf"
-              ? "hybrid 서버가 연결되어 있지 않습니다. 설정 → OCR 에서 연결하세요."
-              : "PDF 에만 적용됩니다."
+            ? "글자 레이어가 없는 스캔 문서를 이미지에서 인식합니다. 시간이 오래 걸립니다."
+            : "OCR 서버가 연결되어 있지 않습니다. 설정 → OCR 에서 연결하세요."
         }</span></span>
         <button class="sw" role="switch" data-opt="ocr" aria-checked="${ocr}" aria-label="OCR 사용" ${
           ocrReady ? "" : "disabled"
@@ -164,9 +105,7 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
       }
       <div class="switchrow">
         <span class="txt"><b>구조 트리 사용</b><span>태그드 PDF 의 구조로 읽기 순서를 잡습니다. 태그 품질에 따라 결과가 갈립니다.</span></span>
-        <button class="sw" role="switch" data-opt="useStructTree" aria-checked="${structTree}" aria-label="구조 트리 사용" ${
-          doc.kind === "pdf" ? "" : "disabled"
-        }></button>
+        <button class="sw" role="switch" data-opt="useStructTree" aria-checked="${structTree}" aria-label="구조 트리 사용"></button>
       </div>
       ${
         shadowed
@@ -182,31 +121,61 @@ export function renderInspector(host: HTMLElement, doc: Doc | null): void {
       </div>
       <div class="opt">
         <label for="optTables">표 감지 방식</label>
-        <select id="optTables" data-opt="tableMethod" ${pdfOnly}>
+        <select id="optTables" data-opt="tableMethod">
           <option value="default"${sel(options.tableMethod ?? "default", "default")}>테두리 기반</option>
           <option value="cluster"${sel(options.tableMethod ?? "default", "cluster")}>테두리 + 군집</option>
         </select>
-        <span class="desc">테두리가 없는 표가 많은 문서는 군집 방식이 더 잘 잡습니다. PDF 전용입니다.</span>
+        <span class="desc">테두리가 없는 표가 많은 문서는 군집 방식이 더 잘 잡습니다.</span>
       </div>
+    </div>`;
+}
+
+/**
+ * build.36 에서 줄였다. 전에는 문서 메타데이터(상태·용량·처리 시간·엔진)와 내보내기
+ * 버튼이 함께 있었는데, 앞의 것은 목록 카드와 변환 로그 탭에, 뒤의 것은 뷰어
+ * 머리에 이미 있었다. 이 패널은 **재변환에 쓰는 옵션**만 갖는다. PDF 전용 옵션은
+ * 다른 형식에서 잠가 두던 것을 아예 그리지 않는다.
+ */
+export function renderInspector(host: HTMLElement, doc: Doc | null): void {
+  if (!doc) {
+    host.innerHTML = `<p class="insp-empty">문서를 고르면 변환 옵션이 여기 나옵니다.</p>`;
+    return;
+  }
+
+  const options = effectiveOptions(doc);
+  const engine = options.engine ?? "local";
+
+  host.innerHTML = `
+    <div class="insp-sec">
+      <h3>엔진</h3>
       <div class="opt">
-        <label for="optImages">이미지 처리</label>
+        <label for="optEngine">처리 방식</label>
+        <select id="optEngine" data-opt="engine">
+          <option value="local"${sel(engine, "local")}>로컬 엔진</option>
+          <option value="llm"${sel(engine, "llm")}>LLM 엔진</option>
+        </select>
+        <span class="desc">${
+          engine === "llm"
+            ? "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다."
+            : "로컬 엔진은 같은 문서에서 항상 같은 결과를 냅니다."
+        }</span>
+      </div>
+      ${engine === "llm" ? llmOptions(options) : ""}
+    </div>
+
+    ${doc.kind === "pdf" ? pdfOptions(options) : ""}
+
+    <div class="insp-sec">
+      <h3>그림</h3>
+      <div class="opt">
+        <label for="optImages">그림 처리</label>
         <select id="optImages" data-opt="imageOutput">
           <option value="note"${sel(options.imageOutput ?? "note", "note")}>위치만 표시</option>
           <option value="off"${sel(options.imageOutput ?? "note", "off")}>제외</option>
         </select>
         <span class="desc">로컬 엔진은 그림 내용을 글자로 옮기지 못합니다. 못 읽은 자리에
-          <code>[그림 N]</code> 과 쪽 번호를 남깁니다.</span>
+          <code>[그림 N]</code> 과 위치를 남깁니다.</span>
       </div>
-      <button class="btn block" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 설정으로 재변환</span></button>
-    </div>
-
-    <div class="insp-sec">
-      <h3>내보내기</h3>
-      <div class="od-stack insp-actions">
-        <button class="btn block primary" id="inspExport" ${doc.status === "done" ? "" : "disabled"}>
-          ${icon("i-down", "icon icon-sm")}<span>Markdown 내보내기</span></button>
-        <button class="btn block" id="inspCopy" ${doc.status === "done" ? "" : "disabled"}>
-          ${icon("i-copy", "icon icon-sm")}<span>클립보드에 복사</span></button>
-      </div>
+      <button class="btn block primary" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 옵션으로 재변환</span></button>
     </div>`;
 }
