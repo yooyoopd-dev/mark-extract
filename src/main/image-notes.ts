@@ -121,6 +121,22 @@ export function noteImages(markdown: string, mode: ImageMode): ImageNotes {
 
 const label = (n: number): string => `[그림 ${n}]`;
 
+/** noteImages 가 만든 줄과 칸 안 표시. hasText 가 이것을 글자로 세지 않게 한다. */
+const NOTE_LINE = /^\s*> \[그림 \d+\].*$/gm;
+const NOTE_INLINE = /\[그림 \d+\]/g;
+
+/**
+ * 그림 표시를 빼고도 글자가 남는가.
+ *
+ * 스캔 PDF 는 쪽마다 그림 한 장이라 엔진이 그림 참조만 낸다. noteImages 를 지나면
+ * `> [그림 1] 1쪽 — …` 줄이 남으므로 결과가 비어 있지 않다 — 그래서 **글자 0개인
+ * 성공**으로 나왔다 (build.34, sample-scan.pdf 실측). 빈 결과 판정은 이것으로 한다.
+ */
+export function hasText(markdown: string): boolean {
+  const rest = markdown.replace(NOTE_LINE, "").replace(NOTE_INLINE, "").replace(/<!--[\s\S]*?-->/g, "");
+  return /[\p{L}\p{N}]/u.test(rest);
+}
+
 function where(page: number | null, unit: string, heading: string | null): string {
   const parts: string[] = [];
   if (page !== null) parts.push(`${page}${unit}`);

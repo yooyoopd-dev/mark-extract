@@ -45,6 +45,8 @@ export function renderSidebar(host: HTMLElement): void {
       ${item("kind:docx", "i-files", "Word", c.docx)}
       ${item("kind:xlsx", "i-table", "Excel", c.xlsx)}
       ${item("kind:pptx", "i-image", "PowerPoint", c.pptx)}
+      ${item("kind:html", "i-code", "HTML", c.html)}
+      ${item("kind:eml", "i-inbox", "메일", c.eml)}
     </div>
     ${
       state.watch.length === 0

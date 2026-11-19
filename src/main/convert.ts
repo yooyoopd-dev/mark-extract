@@ -10,6 +10,8 @@ import { settings } from "./settings";
 import { parsePdf } from "./parsers/pdf-opendataloader";
 import { parseOffice } from "./parsers/office-kordoc";
 import { parsePptx } from "./parsers/pptx";
+import { parseHtml } from "./parsers/html";
+import { parseEml } from "./parsers/eml";
 import type { ParseRequest, ParseResult } from "../shared/parse";
 
 function failure(detail: string, code: string, message: string): ParseResult {
@@ -27,7 +29,7 @@ const unsupported = (detail: string): ParseResult =>
   failure(
     detail,
     "UNSUPPORTED_FORMAT",
-    "PDF · DOCX · XLSX · XLS · PPTX 만 변환합니다. HWP 계열은 지원하지 않습니다.",
+    "PDF · DOCX · XLSX · XLS · PPTX · HTML · EML 만 변환합니다. HWP 계열은 지원하지 않습니다.",
   );
 
 /**
@@ -57,6 +59,10 @@ async function convertLocally(request: ParseRequest): Promise<ParseResult> {
       return parseOffice(request, format);
     case "pptx":
       return parsePptx(request);
+    case "html":
+      return parseHtml(request);
+    case "eml":
+      return parseEml(request);
     case "protected":
       return protectedDoc("암호·DRM 컨테이너 (OLE2 안에 문서가 들어 있다)");
     default:

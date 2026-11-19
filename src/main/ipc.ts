@@ -19,7 +19,7 @@ import { selfTestReport } from "./self-test";
 import type { CliStatus, DocOptions, ExportRequest, Settings } from "../shared/doc";
 import type { Provider } from "../shared/parse";
 
-const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx"];
+const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "htm", "eml"];
 const PROVIDERS: readonly Provider[] = ["claude", "gemini", "codex", "ollama"];
 
 const windowOf = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null =>

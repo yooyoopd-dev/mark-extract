@@ -83,7 +83,7 @@ try {
   const notServer = await testHybrid(bareUrl);
   check("/health 가 404 면 연결 실패로 본다", notServer.ok === false, JSON.stringify(notServer));
 
-  server.close();
+  // server 는 4절(실제 실행)에서 한 번 더 쓴다 — /health 에만 답하는 서버다.
   bare.close();
 
   /* ── 2. 원격 주소 판정 ────────────────────────────── */
@@ -148,43 +148,67 @@ try {
 
   /* ── 4. 실제 실행 — 서버가 꺼졌을 때 ──────────────── */
   //
-  // 동봉 JRE 로 진짜 CLI 를 돌린다. 연결 거부는 즉시 나므로 빠르다.
+  // 동봉 JRE 로 진짜 CLI 를 돌린다.
+  //
+  // build.34 에서 뜻이 바뀌었다. 전에는 "서버가 없으면 실패한다" 를 단언했는데, 그
+  // 동작이 바로 사용자 보고의 실패였다 — 인스펙터는 서버가 죽어 있으면 OCR 스위치를
+  // 꺼진 채 그리는데, "새 PDF 에 OCR 켜 두기" 가 심은 ocr: true 때문에 실제로는
+  // 죽은 서버를 불렀다. 이제는 시작 전에 /health 를 보고, 답이 없으면 OCR 없이
+  // 변환하되 경고로 알린다.
   console.log("\n서버 미구동 (실제 실행)");
 
   const fixture = join(root, "test/fixtures/sample-ko.pdf");
   const down = await parsePdf({ filePath: fixture, options: { ocr: true }, hybridUrl: DEAD });
+  const downArgs = down.log.find((e) => e.label === "인자")?.value ?? "";
 
-  check("서버가 없으면 변환이 실패한다", down.ok === false, JSON.stringify(down.error?.code));
+  check("서버가 없어도 OCR 없이 변환된다", down.ok === true, JSON.stringify(down.error));
+  check("--hybrid 를 붙이지 않는다", !downArgs.includes("--hybrid"), downArgs);
   check(
-    "사유를 hybrid 로 특정한다",
-    down.error?.code === "HYBRID_UNAVAILABLE",
-    `${down.error?.code}: ${String(down.error?.message).slice(0, 120)}`,
-  );
-  // --quiet 를 쓰던 때에는 stderr 가 통째로 비어 "엔진이 1 로 끝났습니다"만 남았다.
-  check(
-    "CLI 가 내주는 설치·구동 안내가 살아 있다",
-    String(down.error?.message).includes("pip install") && String(down.error?.message).includes("opendataloader-pdf-hybrid"),
-    String(down.error?.message).slice(0, 200),
+    "OCR 을 건너뛴 사실이 경고로 남는다",
+    down.warnings.some((w) => w.code === "OCR_SKIPPED" && w.message.includes(DEAD)),
+    JSON.stringify(down.warnings.map((w) => w.code)),
   );
   check(
-    "여러 줄짜리 안내가 잘리지 않는다",
-    String(down.error?.message).split("\n").length >= 4,
-    JSON.stringify(String(down.error?.message).slice(0, 160)),
+    "로그에도 건너뛴 사유가 남는다",
+    down.log.some((e) => e.label === "OCR" && e.value.includes("건너뜀")),
+    JSON.stringify(down.log.filter((e) => e.label === "OCR")),
+  );
+  check(
+    "건너뛰었으면 OCR 제한 시간을 쓰지 않는다",
+    down.log.some((e) => e.label === "제한 시간" && e.value === "30분") &&
+      !down.log.some((e) => e.label === "OCR" && e.value.includes("hybrid 서버")),
+    JSON.stringify(down.log.filter((e) => e.label === "제한 시간" || e.label === "OCR")),
+  );
+
+  /* ── 4-b. /health 는 답하는데 변환은 못 하는 서버 ───── */
+  //
+  // 시작 전 확인을 지나면 --hybrid 를 붙인다. 그 뒤의 실패는 지금처럼 실패다 — 변환
+  // 도중 조용히 Java 경로로 되돌리지 않는다 (결정 6).
+  console.log("\n/health 만 답하는 서버 (실제 실행)");
+
+  const half = await parsePdf({ filePath: fixture, options: { ocr: true }, hybridUrl: live });
+  const halfArgs = half.log.find((e) => e.label === "인자")?.value ?? "";
+  check("살아 있으면 --hybrid 를 붙인다", halfArgs.includes(`--hybrid-url ${live}`), halfArgs);
+  check("서버가 변환을 못 하면 실패한다", half.ok === false, JSON.stringify(half.error?.code));
+  check(
+    "엔진이 낸 사유를 그대로 보여 준다",
+    String(half.error?.message).includes("Backend processing failed"),
+    String(half.error?.message).slice(0, 200),
   );
   check(
     "제한 시간이 30분으로 올라간 사실이 로그에 남는다",
-    down.log.some((e) => e.label === "OCR" && e.value.includes("30분")),
-    JSON.stringify(down.log.map((e) => e.label)),
+    half.log.some((e) => e.label === "OCR" && e.value.includes("30분")),
+    JSON.stringify(half.log.map((e) => e.label)),
   );
   // build.28 실측. OCR 을 켠 스캔 문서가 10분에 끊겼는데, 로그에 "30분" 이 문구로
   // 박혀 있어 실제로 몇 분을 쓴 것인지 로그만 보고는 알 수 없었다.
   check(
     "실제로 쓴 제한 시간이 로그에 따로 남는다",
-    down.log.some((e) => e.label === "제한 시간" && e.value === "30분"),
-    JSON.stringify(down.log.filter((e) => e.label === "제한 시간")),
+    half.log.some((e) => e.label === "제한 시간" && e.value === "30분"),
+    JSON.stringify(half.log.filter((e) => e.label === "제한 시간")),
   );
   // 설정에서 더 늘리면 그 값을 쓴다.
-  const long = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 90 * 60_000 }, hybridUrl: DEAD });
+  const long = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 90 * 60_000 }, hybridUrl: live });
   check(
     "설정이 30분보다 크면 그 값을 쓴다",
     long.log.some((e) => e.label === "제한 시간" && e.value === "90분"),
@@ -192,7 +216,7 @@ try {
   );
   // 반대로 작게 잡아도 OCR 은 30분을 보장한다 — 스캔 문서를 짧은 값으로 끊으면
   // 정상 동작이 실패가 된다.
-  const short = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 5 * 60_000 }, hybridUrl: DEAD });
+  const short = await parsePdf({ filePath: fixture, options: { ocr: true, timeoutMs: 5 * 60_000 }, hybridUrl: live });
   check(
     "OCR 은 설정이 작아도 30분은 기다린다",
     short.log.some((e) => e.label === "제한 시간" && e.value === "30분"),
@@ -205,10 +229,12 @@ try {
     localShort.log.some((e) => e.label === "제한 시간" && e.value === "5분"),
     JSON.stringify(localShort.log.filter((e) => e.label === "제한 시간")),
   );
-  check("그대로 재시도를 제안한다", down.error?.actions.includes("retry-plain"), JSON.stringify(down.error?.actions));
+  check("그대로 재시도를 제안한다", half.error?.actions.includes("retry-plain"), JSON.stringify(half.error?.actions));
+  server.close();
 
   const plain = await parsePdf({ filePath: fixture, options: {}, hybridUrl: DEAD });
   check("OCR 을 끄면 그대로 변환된다", plain.ok === true, JSON.stringify(plain.error));
+  check("OCR 을 끄면 서버를 보지 않는다", !plain.warnings.some((w) => w.code === "OCR_SKIPPED"), JSON.stringify(plain.warnings));
 
   /* ── 5. stderr 레벨 가르기 ────────────────────────── */
   //

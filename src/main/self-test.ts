@@ -30,7 +30,17 @@ import { resolveCli } from "./llm/resolve";
 import { PROVIDERS } from "./llm/providers";
 import { settings } from "./settings";
 
-const SAMPLES = ["sample-ko.pdf", "sample-ko.docx", "sample-ko.xlsx", "sample-ko.xls", "sample-ko.pptx"];
+// 메일 두 건은 Electron 런타임의 디코더를 지나게 하려고 넣었다 — sample-text.eml 의
+// 제목이 ks_c_5601-1987(EUC-KR) 이다. 리눅스 Node 로 도는 검증과 ICU 가 다를 수 있다.
+const SAMPLES = [
+  "sample-ko.pdf",
+  "sample-ko.docx",
+  "sample-ko.xlsx",
+  "sample-ko.xls",
+  "sample-ko.pptx",
+  "sample-ko.eml",
+  "sample-text.eml",
+];
 
 function fixturesDir(): string {
   return app.isPackaged ? join(process.resourcesPath, "fixtures") : join(app.getAppPath(), "test/fixtures");

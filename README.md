@@ -9,6 +9,8 @@
 | PDF | [opendataloader-pdf](https://github.com/opendataloader-project/opendataloader-pdf) (JRE·JAR 동봉) |
 | DOCX / XLSX / XLS | [kordoc](https://github.com/chrisryugj/kordoc) |
 | PPTX | [markitdown](https://github.com/microsoft/markitdown) 변환 규칙 포팅 |
+| HTML | [turndown](https://github.com/mixmark-io/turndown) |
+| EML | [postal-mime](https://github.com/postalsys/postal-mime) (본문 HTML 은 turndown) |
 
 문서마다 **로컬 엔진**과 **LLM 엔진**(claude / gemini / codex / ollama CLI) 중에서 고른다.
 

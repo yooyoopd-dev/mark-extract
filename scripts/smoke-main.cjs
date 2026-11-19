@@ -142,6 +142,25 @@ app.whenReady().then(async () => {
       failures.push(`변환이 끝나지 않음 (${filled.done}/${filled.cards})`);
     }
 
+    // HTML·EML (build.34). 명령줄 → 큐 → 어댑터를 지나 완료됐는지, 그리고 형식 배지에
+    // 색이 걸리는지 — 배지는 인스펙터에만 있어 같은 클래스의 요소를 잠깐 만들어 본다.
+    const kinds = await win.webContents.executeJavaScript(`(async () => {
+      const docs = await window.markExtract.list();
+      const badge = (k) => {
+        const el = document.createElement("span");
+        el.className = "fmt " + k;
+        document.body.appendChild(el);
+        const bg = getComputedStyle(el).backgroundColor;
+        el.remove();
+        return bg;
+      };
+      return ["html", "eml"].map((k) => ({ k, status: docs.find((d) => d.kind === k)?.status ?? "없음", bg: badge(k) }));
+    })()`);
+    for (const k of kinds) {
+      if (k.status !== "done") failures.push(`${k.k} 문서가 완료되지 않음 (${k.status})`);
+      if (k.bg === "rgba(0, 0, 0, 0)" || k.bg === "") failures.push(`.fmt.${k.k} 에 색이 걸리지 않음`);
+    }
+
     // 2. preload 표면과 렌더러 모듈 체인 — 테마 캡처보다 먼저 본다.
     //    모듈이 깨졌으면 여기서 정확한 사유가 나온다.
     const SURFACE = ["version", "getFilePath", "list", "markdown", "add", "onChanged", "exportMarkdown", "addWatch", "getSettings", "window"];

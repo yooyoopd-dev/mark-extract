@@ -86,6 +86,8 @@ export const KIND_LABEL: Record<DocKind, string> = {
   xlsx: "XLS",
   xls: "XLS",
   pptx: "PPT",
+  html: "HTML",
+  eml: "EML",
 };
 
 export const STATUS = {
@@ -131,6 +133,8 @@ export const counts = () => ({
   docx: docs.filter((d) => d.kind === "docx").length,
   xlsx: docs.filter((d) => d.kind === "xlsx" || d.kind === "xls").length,
   pptx: docs.filter((d) => d.kind === "pptx").length,
+  html: docs.filter((d) => d.kind === "html").length,
+  eml: docs.filter((d) => d.kind === "eml").length,
 });
 
 const VIEWS: Record<string, { title: string; test: (d: Doc) => boolean }> = {

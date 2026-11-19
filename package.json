@@ -24,6 +24,7 @@
   "devDependencies": {
     "@opendataloader/pdf": "^2.5.9",
     "@types/node": "^24.0.0",
+    "@types/turndown": "^5.0.6",
     "electron": "^44.0.0",
     "electron-builder": "^26.0.0",
     "typescript": "^7.0.2"
@@ -31,6 +32,8 @@
   "dependencies": {
     "@xmldom/xmldom": "^0.9.12",
     "jszip": "^3.10.2",
-    "kordoc": "^4.14.0"
+    "kordoc": "^4.14.0",
+    "postal-mime": "^4.2.1",
+    "turndown": "^7.2.5"
   }
 }

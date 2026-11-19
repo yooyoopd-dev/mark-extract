@@ -55,6 +55,8 @@
 .fmt.docx { background: #2B5797; }
 .fmt.xlsx { background: #1E7A47; }
 .fmt.pptx { background: #A85A08; }
+.fmt.html { background: #5B4B9A; }
+.fmt.eml  { background: #4A6572; }
 .fmt.lg { width: 32px; height: 20px; font-size: 9px; border-radius: 4px; }
 
 .sidebar-foot { border-top: 1px solid var(--border-default); padding: 8px; }

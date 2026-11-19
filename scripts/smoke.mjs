@@ -13,6 +13,8 @@ const electron = join(root, "node_modules/.bin/electron");
 const samples = [
   ...["pdf", "docx", "xlsx", "pptx"].map((ext) => join(root, `test/fixtures/sample-ko.${ext}`)),
   join(root, "test/fixtures/sample-table.docx"),
+  // build.34. 매직 바이트가 없는 두 형식이 명령줄 → 큐 → 어댑터를 실제로 지나는지.
+  ...["html", "eml"].map((ext) => join(root, `test/fixtures/sample-ko.${ext}`)),
 ];
 const entry = ["scripts/smoke-main.cjs", ...samples];
 

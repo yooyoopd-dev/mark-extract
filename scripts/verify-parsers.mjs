@@ -20,7 +20,8 @@ require.cache[require.resolve("electron")] = { exports: { app: { isPackaged: fal
 const { convert } = require(join(root, "out/main/convert.js"));
 const { probe } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 const { detectFormat } = require(join(root, "out/main/detect-format.js"));
-const { noteImages } = require(join(root, "out/main/image-notes.js"));
+const { hasText, noteImages } = require(join(root, "out/main/image-notes.js"));
+const { decodeHtml } = require(join(root, "out/main/parsers/html.js"));
 
 const failures = [];
 const check = (name, ok, detail = "") => {
@@ -50,6 +51,9 @@ for (const [file, want] of [
   ["sample-ko.xlsx", "xlsx"],
   ["sample-ko.xls", "xls"],
   ["sample-ko.pptx", "pptx"],
+  // HTML·EML 은 매직 바이트가 없어 확장자로 받는다 (build.34).
+  ["sample-ko.html", "html"],
+  ["sample-ko.eml", "eml"],
 ]) {
   const got = await detectFormat(fixture(file));
   check(`${file} → ${want}`, got === want, `실제 ${got}`);
@@ -62,6 +66,14 @@ try {
   const misnamed = join(scratch, "실제로는-docx.pdf");
   copyFileSync(fixture("sample-ko.docx"), misnamed);
   check("확장자가 .pdf 여도 내용이 docx 면 docx", (await detectFormat(misnamed)) === "docx");
+
+  // 확장자 판정은 매직 바이트 뒤에만 한다. PDF 를 .html 로 저장해도 PDF 다.
+  const pdfAsHtml = join(scratch, "실제로는-pdf.html");
+  copyFileSync(fixture("sample-ko.pdf"), pdfAsHtml);
+  check("확장자가 .html 여도 내용이 PDF 면 pdf", (await detectFormat(pdfAsHtml)) === "pdf");
+  const htm = join(scratch, "옛 확장자.htm");
+  copyFileSync(fixture("sample-ko.html"), htm);
+  check(".htm 도 html", (await detectFormat(htm)) === "html");
 
   // 암호·DRM 으로 감싼 문서 (build.25 실측). OLE2 컨테이너 안에 문서가 들어 있는
   // 모양이라 예전에는 전부 "unknown" 으로 떨어져 "HWP 계열은 지원하지 않습니다"
@@ -193,6 +205,35 @@ const IMAGE_CHECKS = [
   ],
 ];
 
+/* ── 빈 결과 판정 · 문자셋 (합성 입력, build.34) ─────── */
+console.log("\n빈 결과 판정 · 문자셋 — 합성 입력");
+{
+  // 스캔 PDF 는 noteImages 를 지나면 위치 표시 줄만 남는다. 그것은 글자가 아니다.
+  const scanned = noteImages("<!-- markextract-page 1 -->\n![](<a_images/imageFile1.png>)", "note").markdown;
+  check("위치 표시 줄만 있으면 글자가 없다", hasText(scanned) === false, JSON.stringify(scanned));
+  check("칸 안의 [그림 N] 도 글자가 아니다", hasText("| [그림 1] |\n| --- |") === false);
+  check("글자가 한 자라도 있으면 있다", hasText(`${scanned}\n가`) === true);
+  check("숫자도 글자다", hasText("> [그림 1] 1쪽 — x\n2026") === true);
+
+  const ko = "가나다 한글";
+  const utf8 = new TextEncoder().encode(ko);
+  check("선언 없는 UTF-8 은 utf-8", decodeHtml(utf8).charset === "utf-8" && decodeHtml(utf8).text === ko);
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...utf8]);
+  check("BOM 은 떼고 읽는다", decodeHtml(bom).text === ko, decodeHtml(bom).charset);
+  // EUC-KR "한글" = C7 D1 B1 DB. UTF-8 로는 성립하지 않는 바이트열이다.
+  const legacy = new Uint8Array([0xc7, 0xd1, 0xb1, 0xdb]);
+  check("UTF-8 로 깨지면 EUC-KR 로 읽는다", decodeHtml(legacy).text === "한글", JSON.stringify(decodeHtml(legacy)));
+  const declared = new Uint8Array([...new TextEncoder().encode('<meta charset="euc-kr">'), 0xc7, 0xd1, 0xb1, 0xdb]);
+  check("<meta charset> 선언을 따른다", decodeHtml(declared).text.endsWith("한글") && decodeHtml(declared).charset.includes("선언"));
+}
+
+/** HTML 어댑터 공통 — 다른 어댑터가 하지 않는 것만. */
+const HTML_ONLY = [
+  ["<title> 이 본문에 새지 않는다", (md) => md.trimStart().startsWith("# ")],
+  ["<style> 내용이 새지 않는다", (md) => !md.includes("@page") && !md.includes("font-family")],
+  ["목록 기호 뒤 공백이 하나", (md) => !/^- {2,}/m.test(md)],
+];
+
 const CASES = [
   {
     file: "sample-ko.pdf",
@@ -277,6 +318,75 @@ const CASES = [
     ],
   },
   {
+    file: "sample-ko.html",
+    engine: "turndown",
+    extra: [
+      ...HTML_ONLY,
+      ["H2·H3 제목 계층", (md) => md.includes("## 1. 제목 계층") && md.includes("### 1.1 하위 절")],
+      ["표 헤더", (md) => /\|\s*형식\s*\|/.test(md)],
+      ["목록", (md) => md.includes("- 첫 번째 항목")],
+    ],
+  },
+  {
+    file: "sample-table.html",
+    engine: "turndown",
+    title: "병합 표 시험 자료",
+    extra: [...HTML_ONLY, ...TABLE_CHECKS],
+  },
+  {
+    file: "sample-image.html",
+    engine: "turndown",
+    title: "그림이 든 시험 자료",
+    extra: [
+      ...IMAGE_CHECKS,
+      // HTML 에는 쪽이 없다. 앞선 제목이 위치가 된다.
+      ["직전 제목이 위치가 된다", (md) => md.includes('[그림 1] "1. 첫째 쪽 그림" 아래')],
+      // 셀 안의 <img> 는 표 변환이 글자만 모으므로 그냥 두면 조용히 사라진다.
+      ["표 셀 안의 그림이 사라지지 않는다", (md) => /\|\s*표 안\s*\|\s*\[그림 2\]\s*\|/.test(md)],
+      ["base64 가 본문에 쏟아지지 않는다", (md) => !md.includes("base64")],
+    ],
+  },
+  {
+    file: "sample-euckr.html",
+    engine: "turndown",
+    title: "사내 공지",
+    extra: [
+      ["선언 없는 EUC-KR 이 한글로 풀린다", (md) => md.includes("# 사내 공지") && md.includes("EUC-KR** 로 저장했고")],
+      ["깨진 글자가 없다", (md) => !md.includes("\ufffd")],
+      ["문자셋을 로그에 적는다", (md, r) => r.log.some((e) => e.label === "문자셋" && e.value.includes("euc-kr"))],
+    ],
+  },
+  {
+    file: "sample-ko.eml",
+    engine: "postal-mime",
+    title: "# [공지] 3분기 회의 일정",
+    extra: [
+      ["보낸 사람 (이름 디코딩)", (md) => md.includes("- 보낸 사람: 홍길동 <hong@example.com>")],
+      ["받는 사람", (md) => md.includes("- 받는 사람: 김철수 <kim@example.com>")],
+      ["참조", (md) => md.includes("- 참조: lee@example.com")],
+      ["날짜는 원문 머리 그대로 (+0900)", (md) => md.includes("- 날짜: Thu, 19 Nov 2026 14:05:00 +0900")],
+      ["HTML 파트를 쓴다", (md) => md.includes("(html 파트)") && !md.includes("(text 파트)")],
+      ["quoted-printable 본문이 한글로 풀린다", (md) => md.includes("**시험 자료**입니다")],
+      ["본문 표가 파이프 표", (md) => /\|\s*예산\s*\|\s*김철수\s*\|/.test(md)],
+      ["본문 링크", (md) => md.includes("[공지](https://intranet.example/notice/1)")],
+      ["cid 그림은 본문 [그림 1]", (md) => md.includes("> [그림 1]")],
+      ["첨부 목록에 파일 이름(RFC 2231)과 크기", (md) => /## 첨부 파일\n\n- 회의자료\.pdf \(\d+\.\d KB\)/.test(md)],
+      ["본문 그림은 첨부 목록에 없다", (md) => !md.includes("logo.png")],
+      ["첨부를 변환하지 않았다는 경고", (md, r) => r.warnings.some((w) => w.code === "ATTACHMENT_NOT_CONVERTED")],
+    ],
+  },
+  {
+    file: "sample-text.eml",
+    engine: "postal-mime",
+    title: "# 텍스트 메일",
+    extra: [
+      ["ks_c_5601-1987 제목이 풀린다", (md) => md.startsWith("# 텍스트 메일")],
+      ["EUC-KR base64 본문이 풀린다", (md) => md.includes("텍스트로만 된 메일입니다.") && md.includes("둘째 문단.")],
+      ["참조가 없으면 줄을 만들지 않는다", (md) => !md.includes("참조:")],
+      ["첨부가 없으면 절을 만들지 않는다", (md) => !md.includes("## 첨부 파일")],
+    ],
+  },
+  {
     file: "sample-image.pptx",
     engine: "자체 구현",
     title: "1. 첫째 슬라이드",
@@ -307,6 +417,19 @@ for (const { file, engine, extra , title } of CASES) {
   for (const [name, test] of [...common, ...extra]) check(name, test(md, result));
 
   writeFileSync(join(outDir, file.replace(/\.[^.]+$/, "") + `.${file.split(".").pop()}.md`), md);
+}
+
+/* ── 스캔 PDF (build.34) ──────────────────────────────── */
+//
+// 글자 레이어가 없는 PDF. 엔진은 그림 참조만 내고, 위치 표시로 바뀐 뒤에는 결과가
+// 비어 있지 않아 "성공" 으로 나왔다 — 사용자가 받은 것은 [그림 N] 줄뿐이었다.
+console.log("\nsample-scan.pdf (글자 레이어 없음)");
+{
+  const scan = await convert({ filePath: fixture("sample-scan.pdf") });
+  check("성공으로 내지 않는다", scan.ok === false, JSON.stringify(scan.markdown.slice(0, 80)));
+  check("빈 결과로 분류한다", scan.error?.code === "EMPTY_OUTPUT", scan.error?.code);
+  check("스캔 문서라고 말한다", String(scan.error?.message).includes("스캔"), scan.error?.message);
+  check("OCR 재시도를 제안한다", scan.error?.actions.includes("retry-with-ocr"), JSON.stringify(scan.error?.actions));
 }
 
 /* ── 뒷정리 ───────────────────────────────────────────── */

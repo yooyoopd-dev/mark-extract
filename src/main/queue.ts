@@ -15,7 +15,7 @@ import { settings } from "./settings";
 import type { DocKind, DocOptions, DocView, ExportRequest, ExportResult } from "../shared/doc";
 import type { ParseResult } from "../shared/parse";
 
-const SUPPORTED: readonly DocKind[] = ["pdf", "docx", "xlsx", "xls", "pptx"];
+const SUPPORTED: readonly DocKind[] = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "eml"];
 /** 폴더를 통째로 끌어다 놓았을 때 훑을 깊이. 무한히 들어가지 않는다. */
 const MAX_DEPTH = 4;
 /** 큐가 무한히 커지지 않도록 (docs/design/05-packaging.md). */
@@ -44,7 +44,9 @@ export const list = (): DocView[] => [...entries.values()].map((e) => e.view);
 export const markdownOf = (id: string): string => entries.get(id)?.markdown ?? "";
 
 function kindOf(path: string): DocKind | null {
-  const ext = extname(path).slice(1).toLowerCase() as DocKind;
+  const raw = extname(path).slice(1).toLowerCase();
+  // .htm 은 같은 형식의 옛 확장자다.
+  const ext = (raw === "htm" ? "html" : raw) as DocKind;
   return SUPPORTED.includes(ext) ? ext : null;
 }
 

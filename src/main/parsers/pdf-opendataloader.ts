@@ -16,7 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
 import { cleanHtmlInMarkdown } from "../html-in-markdown";
-import { noteImages, PAGE_SEPARATOR } from "../image-notes";
+import { testHybrid } from "../hybrid-http";
+import { hasText, noteImages, PAGE_SEPARATOR } from "../image-notes";
 import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
@@ -302,8 +303,34 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
   ];
 
   try {
-    const ocr = request.options?.ocr === true && (request.hybridUrl ?? "") !== "";
-    const args = buildArgs(request.filePath, dir, request.options, request.hybridUrl ?? "");
+    const hybridUrl = request.hybridUrl ?? "";
+    const preflight: Warning[] = [];
+    let ocr = request.options?.ocr === true && hybridUrl !== "";
+
+    // 서버가 답하지 않으면 OCR 없이 변환하고 그 사실을 경고로 남긴다 (build.34).
+    //
+    // 인스펙터는 서버가 죽어 있으면 OCR 스위치를 **꺼진 채** 그린다. 그런데 설정의
+    // "새 PDF 에 OCR 켜 두기" 가 문서에 ocr: true 를 심어 두면, 여기서는 그 값과
+    // (기본값이 있는) 주소만 보고 --hybrid 를 붙여 죽은 서버를 불렀다 — 화면은 OCR
+    // 꺼짐, 실제는 OCR 실패. 서버를 띄우기 전까지 모든 PDF 가 실패하는 모양이다.
+    //
+    // 결정 6 의 --hybrid-fallback 금지와는 다른 일이다. 그것은 변환 **도중** 조용히
+    // 되돌리는 것을 막는다. 여기서는 시작 전에 판단하고, 경고 탭과 로그에 적는다.
+    if (ocr) {
+      const alive = await testHybrid(hybridUrl);
+      if (!alive.ok) {
+        ocr = false;
+        log.push({ label: "OCR", value: `서버 응답 없음 — 건너뜀 (${alive.detail})` });
+        preflight.push({
+          code: "OCR_SKIPPED",
+          message:
+            `OCR 서버(${hybridUrl})가 응답하지 않아 OCR 없이 변환했습니다. ` +
+            "설정 → OCR 서버에서 [실행] 으로 서버를 띄운 뒤 다시 변환하세요.",
+        });
+      }
+    }
+    const options: DocOptions = { ...request.options, ocr };
+    const args = buildArgs(request.filePath, dir, options, hybridUrl);
 
     // 제한 시간을 문구에 박지 않고 실제 쓰는 값을 적는다. 전에는 "30분" 이라고
     // 적어 두었는데 실제로는 문서에 실린 값이 쓰여, 10분에 끊긴 이유를 로그만
@@ -334,7 +361,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
       return {
         ok: false,
         markdown: "",
-        warnings: logged.warnings,
+        warnings: [...preflight, ...logged.warnings],
         // 종료 코드를 따로 적는다. 문구에 섞어 두면 사유가 있을 때 사라졌다.
         log: [...log, { label: "종료 코드", value: String(code) }, { label: "엔진 오류", value: reason }],
         meta: { engine: ENGINE, elapsedMs },
@@ -372,17 +399,21 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     // --keep-line-breaks 로 받았으므로 문단 잇기는 우리 몫이다.
     const markdown = normalizeMarkdown(joinWrappedLines(noted.markdown));
 
-    if (markdown.trim() === "") {
+    // 그림 표시만 남은 것도 빈 결과다 — 스캔 PDF 가 이 모양으로 "성공" 했다 (hasText).
+    if (!hasText(markdown)) {
       return {
         ok: false,
         markdown: "",
-        warnings: [],
+        warnings: preflight,
         log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
         meta: { engine: ENGINE, elapsedMs },
         error: {
           code: "EMPTY_OUTPUT",
-          message: "추출된 텍스트가 없습니다. 스캔 문서일 수 있습니다.",
-          actions: ["retry-with-ocr", "retry-plain"],
+          message: ocr
+            ? "OCR 을 거쳤지만 추출된 글자가 없습니다."
+            : "추출된 글자가 없습니다. 글자 레이어가 없는 스캔(이미지) PDF 로 보입니다. " +
+              "OCR 서버를 띄우고 OCR 을 켜서 다시 변환하세요.",
+          actions: ocr ? ["retry-plain"] : ["retry-with-ocr", "retry-plain"],
         },
       };
     }
@@ -390,7 +421,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     return {
       ok: true,
       markdown,
-      warnings: [...logged.warnings, ...cleaned.warnings, ...noted.warnings],
+      warnings: [...preflight, ...logged.warnings, ...cleaned.warnings, ...noted.warnings],
       log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
       meta: { engine: ENGINE, elapsedMs },
     };

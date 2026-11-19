@@ -737,3 +737,57 @@ opendataloader 에서 그런 것은 hybrid 서버(`opendataloader-pdf-hybrid`) �
 >
 > 부수 소득: Windows 러너에서 `spawn` 이 던지지 않고 콘솔이 생겼다. 창 안에서 서버가
 > 도는지는 여전히 사내 PC 실측이지만, 띄우는 경로 자체는 Windows 에서 확인됐다.
+
+---
+
+## build.34 — PDF 실패 2건 · HTML·EML 변환
+
+요청: "PDF 인식이 제대로 안 된다. 완벽하게 하려 말고 확실히 할 수 있는 것만." 고른
+증상은 **변환 자체가 실패**와 **스캔 PDF 에서 글자 없음**. 추가로 HTML·EML → MD.
+변환 로그 원문은 아직 받지 못했다. 그래서 이 판은 **코드에서 확인된 결함**과
+**결과가 확정적인 것**만 했다. 로컬 OCR 동봉·자동 재시도·`-Xmx` 는 하지 않았다.
+
+### 1. 화면은 OCR 꺼짐인데 죽은 OCR 서버를 불렀다 — 확인된 결함, 원인 확정은 아님
+
+`ocrByDefault` 가 켜져 있으면 큐가 새 PDF 에 `ocr: true` 를 심는다. 인스펙터는 서버가
+죽어 있으면 OCR 스위치를 꺼진 채 그리는데, 어댑터는 그 값과 (기본값이 있는) 주소만
+보고 `--hybrid` 를 붙였다. 서버를 띄우면 다 되고 재부팅하면 다시 실패하는 보고의
+모양과 맞는다. 이제 시작 전에 `/health` 를 보고, 답이 없으면 OCR 없이 변환하고
+`OCR_SKIPPED` 경고를 낸다 (→ [02](02-parser-adapters.md#ocr-서버가-꺼져-있으면-ocr-없이-변환한다-build34)).
+
+**이것이 그 보고의 원인이라고 확정하지 않는다.** 리눅스 실측에서는 서버가 꺼지면
+CLI 가 `Hybrid server is not available …` 를 SEVERE 로 내고 화면에는 "hybrid OCR 서버에
+연결하지 못했습니다" 가 뜬다. 보고된 문구는 "변환 엔진이 N 로 끝났습니다" 였다 — 사용자
+PC 의 `ocrByDefault` 값도 확인하지 못했다. build.31 의 stderr 원문 노출은 그대로 두었고,
+같은 실패가 남으면 변환 로그 탭에 원인이 찍힌다.
+
+### 2. 스캔 PDF 가 "성공" 으로 나왔다 — 실측으로 확인
+
+`sample-scan.pdf`(글자 레이어 없음)를 넣으면 엔진은 그림 참조만 내고, 위치 표시로 바뀐
+결과가 비어 있지 않아 성공이었다. `hasText()` 로 판정해 `EMPTY_OUTPUT` + "스캔(이미지)
+PDF 로 보입니다" + `retry-with-ocr` 로 바꿨다. **스캔 PDF 를 읽게 된 것은 아니다** —
+OCR 은 여전히 hybrid 서버가 있어야 한다.
+
+### 3. HTML · EML
+
+turndown(HTML)·postal-mime(EML) 두 의존성을 더했다. 표·그림은 기존 공통 코드
+(`html-in-markdown.ts`·`image-notes.ts`)를 지난다. EML 첨부는 이름·크기 목록만
+(사용자 결정). 형식 판별은 매직 바이트 뒤에 확장자로 (→ [02 HTML](02-parser-adapters.md#html--turndown) · [EML](02-parser-adapters.md#eml--postal-mime)).
+
+### 검증
+
+- `verify-parsers` — 스캔 PDF 4건, `hasText`·문자셋 합성 입력 8건, `.htm`·PDF 를
+  `.html` 로 저장한 경우 판별, HTML 자료 4종(기존 PDF 원본 3 + EUC-KR 1), EML 2종
+- `verify-ocr` 4절을 뒤집었다 — 전에는 "서버가 없으면 실패한다" 를 단언했는데 그
+  동작이 바로 보고의 실패였다. 이제 죽은 서버 → 성공 + `OCR_SKIPPED` + `--hybrid` 없음,
+  `/health` 만 답하는 가짜 서버 → `--hybrid` 를 붙이고 실패(결정 6 유지)
+- 스모크 — HTML·EML 이 명령줄 → 큐 → 어댑터를 지나 완료되고 배지 색이 걸리는지
+- CI 의 Windows 패키징본 자체 점검에 메일 2건을 넣고, ks_c_5601-1987 제목이 한글로
+  풀렸는지 결과 글자로 본다
+- 깨뜨려 보기 6종이 모두 물었다: 시작 전 확인 제거, `hasText` 항상 참, EUC-KR 폴백
+  제거, HTML 파트 우선 뒤집기, 표 셀 그림 치환 제거, 이스케이프 복원
+
+### 사내 PC 실측으로 남는 것
+
+- 부팅 직후 첫 PDF 실패가 1 로 사라지는지. 남으면 **변환 로그 탭 전문**
+- 실제 사내 메일(.eml)과 사내 웹에서 저장한 HTML

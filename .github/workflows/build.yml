@@ -142,9 +142,9 @@ jobs:
           $want = @(
             "dist/MarkExtract/resources/jre/bin/java.exe",
             "dist/MarkExtract/resources/lib/opendataloader-pdf-cli.jar"
-          ) + @("pdf", "docx", "xlsx", "xls", "pptx" | ForEach-Object {
+          ) + @("pdf", "docx", "xlsx", "xls", "pptx", "eml" | ForEach-Object {
             "dist/MarkExtract/resources/fixtures/sample-ko.$_"
-          })
+          }) + @("dist/MarkExtract/resources/fixtures/sample-text.eml")
           foreach ($p in $want) {
             if (-not (Test-Path $p)) { $missing += $p } else { Write-Host "있음: $p" }
           }
@@ -181,6 +181,12 @@ jobs:
           Get-Content $out -ErrorAction SilentlyContinue | Write-Host
           Get-Content $err -ErrorAction SilentlyContinue | Write-Host
           if ($p.ExitCode -ne 0) { throw "자체 점검 실패 (exit $($p.ExitCode))" }
+
+          # 변환이 "성공" 해도 제목이 깨졌을 수 있다. ks_c_5601-1987 제목이 Electron
+          # 런타임에서 한글로 풀렸는지 글자로 본다 (build.34, sample-text.eml).
+          if (-not (Select-String -Path $out -Encoding utf8 -SimpleMatch "# 텍스트 메일")) {
+            throw "EUC-KR 메일 제목이 한글로 풀리지 않았습니다 (sample-text.eml)."
+          }
 
       # 여기까지는 빌드가 내놓은 폴더를 그대로 봤다. 사용자가 받는 것은 그 폴더를
       # 만 zip 이다 — 푸는 과정에서 무엇이 빠지거나 깨질 수 있으므로, 사용자가 하는

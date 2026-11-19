@@ -36,6 +36,9 @@ extraResources:
     to: fixtures
     filter:
       - "sample-ko.*"
+      # EUC-KR(ks_c_5601-1987) 제목 메일. Electron 런타임의 디코더를 자체 점검에서
+      # 실제로 지나게 한다 (build.34). html 은 PDF 를 찍는 원본이라 넣지 않는다.
+      - "sample-text.eml"
       - "!*.html"
 
 win:

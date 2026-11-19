@@ -118,3 +118,26 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
 우리 후처리 전에 이미 그렇게 온다. 고칠 수 있는 지점이 아니라서 DOCX 쪽에는 표 셀
 단언을 걸지 않았다 — 같은 검사를 PDF 자료로 한다(opendataloader 는 셀 안에 그대로
 둔다).
+
+## sample-scan.pdf (build.34)
+
+글자 레이어가 없는 두 쪽짜리 PDF. 스캔 문서는 쪽 전체가 그림 한 장이라 엔진이 그림
+참조만 내고, 위치 표시로 바뀐 결과가 비어 있지 않아 **성공**으로 나왔다.
+
+```
+pip install pillow
+python3 test/fixtures/make-scan-sample.py
+```
+
+## sample-euckr.html · sample-ko.eml · sample-text.eml (build.34)
+
+`make-mail.py`(표준 라이브러리만)가 만든다. 무엇을 왜 담았는지는 스크립트 머리에
+적었다 — 선언 없는 EUC-KR, multipart 메일(cid 그림 + RFC 2231 이름의 PDF 첨부,
+quoted-printable HTML), ks_c_5601-1987 제목의 text 메일.
+
+`sample-ko.html`·`sample-table.html`·`sample-image.html` 은 원래 PDF 를 찍는 원본인데
+HTML 어댑터의 시험 자료로도 그대로 쓴다. 같은 내용이라 기대값을 공유한다.
+
+```
+python3 test/fixtures/make-mail.py
+```

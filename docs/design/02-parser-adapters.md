@@ -2,7 +2,7 @@
 
 ## 공통 계약
 
-어댑터는 3개뿐이며 모두 같은 인터페이스를 따른다. 호출자(큐)는 어느 어댑터인지 알 필요가 없다.
+어댑터는 5개(PDF · Office · PPTX · HTML · EML)이며 모두 같은 인터페이스를 따른다. 호출자(큐)는 어느 어댑터인지 알 필요가 없다.
 
 ```ts
 interface ParseRequest {
@@ -268,6 +268,35 @@ JVM 초기화 실패, `Unable to access jarfile`, 잡히지 않은 스택 트레
 
 ---
 
+### OCR 서버가 꺼져 있으면 OCR 없이 변환한다 (build.34)
+
+인스펙터는 서버가 죽어 있으면(`state.hybridOk=false`) OCR 스위치를 **꺼진 채 비활성**으로
+그린다. 그런데 설정의 "새 PDF 에 OCR 켜 두기"(`ocrByDefault`)가 문서에 `ocr: true` 를
+심어 두면, 어댑터는 그 값과 주소(기본값 `http://127.0.0.1:5002` 라 비지 않는다)만 보고
+`--hybrid` 를 붙였다. **화면은 OCR 꺼짐, 실제는 죽은 서버 호출** — 서버를 띄우기 전까지
+모든 PDF 가 실패하는 모양이다.
+
+이제 OCR 이 요청되면 Java 를 띄우기 전에 `testHybrid()` 로 `/health` 를 본다(3초).
+
+| 시작 전 확인 | 하는 일 |
+|---|---|
+| 답이 있다 | 지금처럼 `--hybrid` 를 붙인다. 그 뒤의 실패는 실패다 (`HYBRID_UNAVAILABLE`/`ENGINE_FAILED`) |
+| 답이 없다 | `--hybrid` 없이 변환하고 경고 `OCR_SKIPPED` + 로그 `OCR: 서버 응답 없음 — 건너뜀` |
+
+`--hybrid-fallback` 금지(위)와는 다른 일이다. 그것은 변환 **도중** 서버 오류를 조용히
+Java 경로로 되돌리는 것을 막는다. 여기서는 시작 전에 판단하고 경고 탭·로그에 적는다.
+
+### 스캔 PDF 는 빈 결과다 (build.34 실측)
+
+글자 레이어가 없는 PDF 에서 엔진은 쪽마다 그림 참조만 낸다(`sample-scan.pdf` 실측).
+`noteImages` 가 그것을 `> [그림 N] 1쪽 — …` 줄로 바꾸므로 결과가 비어 있지 않아
+**글자 0개인 성공**으로 나왔다. 빈 결과 판정을 `hasText()`(image-notes.ts) 로 바꿨다 —
+위치 표시 줄과 칸 안의 `[그림 N]` 을 빼고 글자·숫자가 남는지 본다. 없으면
+`EMPTY_OUTPUT` 이고 "스캔(이미지) PDF 로 보입니다" 와 `retry-with-ocr` 을 낸다.
+
+**스캔 PDF 를 읽게 만든 것은 아니다.** 로컬 Java 파이프라인에 OCR 이 없다는 사실은
+그대로다. 서버 없는 OCR(엔진 동봉)은 이 판의 범위가 아니다.
+
 ## DOCX / XLSX / XLS — kordoc
 
 ### 호출
@@ -378,6 +407,72 @@ markitdown은 표를 HTML로 만든 뒤 Markdown으로 변환하지만, 우리�
 **다루지 않는 것** (경고만 남기고 건너뜀): SmartArt, 애니메이션, 슬라이드 마스터의 배경 텍스트, 삽입된 OLE 객체. 확장 여부는 실제 문서에서 필요성이 확인된 뒤에 정한다.
 
 ---
+
+## HTML — turndown
+
+`parsers/html.ts`. turndown 이 문단·제목(`#`)·목록(`-`)·링크·강조·코드 펜스를 옮기고,
+**표와 그림은 다른 어댑터와 같은 코드**를 지난다.
+
+- **표**: turndown 이 `<table>` 을 HTML 그대로 내고 `html-in-markdown.ts` 가 파이프 표로
+  바꾼다 — 병합 펼침·`TABLE_MERGE_FLATTENED` 경고까지 PDF·DOCX 와 같다. 셀 안의
+  `<img>` 는 그쪽이 글자만 모아 **조용히 사라지므로**, 넘기기 전에 `![…](img)` 글자로
+  바꿔 둔다
+- **그림**: `noteImages` 가 `[그림 N]` 위치 표시로 바꾼다. 쪽이 없으므로 위치는 앞선
+  제목이다. data: URI 의 base64 가 본문에 쏟아지는 것도 이것이 막는다
+- **이스케이프하지 않는다.** turndown 기본은 `* `·`1. `·`_` 앞에 역슬래시를 붙인다.
+  kordoc 의 같은 동작을 build.25 에서 떼어 낸 것과 같은 결정이다(원문 글자 그대로)
+- 지우는 것: `script·style·noscript·template·head·title·iframe·object`. `<head>` 는
+  turndown 이 본문 맥락으로 파싱하며 껍데기가 사라져 `<title>` 만 남는다(실측: 제목이
+  본문 첫 줄에 한 번 더 나왔다) — 그래서 `title` 을 따로 지운다
+- 목록 기호 뒤 공백은 하나 (turndown 기본은 셋)
+
+### 문자셋
+
+BOM → 앞 4KB 의 `<meta charset>` → UTF-8 엄격 디코드 → 실패하면 **EUC-KR**. 사내 웹
+시스템에서 저장한 HTML 은 선언 없이 EUC-KR 인 경우가 있다. 무엇으로 읽었는지 로그
+`문자셋` 에 적는다(`euc-kr (추정)` 처럼).
+
+## EML — postal-mime
+
+`parsers/eml.ts`. MIME 은 postal-mime 이 푼다 — 인코딩된 제목(`=?UTF-8?B?`,
+Outlook 의 `=?ks_c_5601-1987?`), quoted-printable·base64 본문, multipart 중첩,
+RFC 2231 첨부 이름.
+
+```
+# 제목                      (없으면 "(제목 없음)")
+
+- 보낸 사람: 이름 <주소>
+- 받는 사람: …
+- 참조: …                   (있을 때만)
+- 날짜: Thu, 19 Nov 2026 14:05:00 +0900   ← 원문 Date 머리 그대로
+
+---
+
+본문                         HTML 파트 우선 → htmlToMarkdown, 없으면 text/plain 그대로
+
+## 첨부 파일                 (있을 때만)
+
+- 회의자료.pdf (2.0 KB)
+```
+
+- **첨부는 꺼내지도 변환하지도 않는다**(사용자 결정). 이름과 크기만 적고 경고
+  `ATTACHMENT_NOT_CONVERTED` 를 낸다
+- 본문 HTML 이 `cid:` 로 가리키는 그림은 첨부 목록에서 뺀다 — 본문의 `[그림 N]` 이 그 자리다
+- 날짜를 postal-mime 의 ISO 값으로 쓰지 않는다. UTC 로 옮겨져 원문의 `+0900` 이 사라진다
+
+### 형식 판별
+
+HTML·EML 에는 매직 바이트가 없다. `detectFormat` 은 PDF·ZIP·OLE2 판별을 모두 지난
+**뒤에만** 확장자(`.html`·`.htm`·`.eml`)를 본다 — PDF 를 `.html` 로 저장한 파일은
+여전히 PDF 로 간다.
+
+### 시험 자료
+
+`sample-ko.html`·`sample-table.html`·`sample-image.html` 은 원래 PDF 를 찍는 원본이라
+기대값이 이미 정해져 있어 그대로 쓴다. 새로 만든 것은 `make-mail.py`(표준 라이브러리만)
+가 만든다: 선언 없는 EUC-KR HTML, multipart 메일(cid 그림 + PDF 첨부), ks_c_5601-1987
+제목의 text 메일. 마지막 것은 **Windows 패키징본 자체 점검**에도 들어간다 — 리눅스
+Node 와 Electron 의 ICU 가 다를 수 있어, CI 가 그 결과에 한글 제목이 있는지 글자로 본다.
 
 ## 경계 조건
 

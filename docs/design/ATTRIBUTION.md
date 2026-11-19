@@ -4,6 +4,8 @@
 |---|---|---|---|
 | [opendataloader-pdf](https://github.com/opendataloader-project/opendataloader-pdf) | Apache-2.0 | PDF 파싱 전체 | JAR 원본 동봉 |
 | [kordoc](https://github.com/chrisryugj/kordoc) | MIT | DOCX / XLSX / XLS 파싱 | npm 의존성 |
+| [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown | npm 의존성 (전이: `@mixmark-io/domino` BSD-2-Clause) |
+| [postal-mime](https://github.com/postalsys/postal-mime) | MIT-0 | EML(MIME) 파싱 | npm 의존성 (의존성 없음) |
 | [markitdown](https://github.com/microsoft/markitdown) | MIT (Microsoft Corporation) | PPTX 변환 **규칙** | 로직 포팅 (Python → TypeScript 재작성) |
 | [llm-co-wiki](https://github.com/yooyoopd-dev/llm-co-wiki) | **GPLv3** | CLI 인자 조합·프로토콜 사실·운영 사실 | 사실 정보만 인용 (코드 복사 없음) |
 | 디자인 export | 사용자 제공 | UI 전체 | 원본 유지 |
@@ -20,7 +22,11 @@ JAR을 그대로 동봉하므로 Apache-2.0 §4의 의무가 발생한다.
 
 배포물의 `resources/lib/` 옆에 `LICENSE`·`NOTICE`·`THIRD_PARTY_LICENSES.md`를 함께 둔다.
 
-## MIT — kordoc, markitdown
+## MIT — kordoc, markitdown, turndown
+
+turndown 이 끌고 오는 `@mixmark-io/domino` 는 BSD-2-Clause 로, MIT 와 같이 저작권
+고지와 라이선스 전문을 함께 배포하면 된다. postal-mime 의 MIT-0 은 고지 의무조차
+없지만 같은 `THIRD_PARTY_LICENSES.md` 에 함께 적는다.
 
 저작권 고지와 라이선스 전문을 함께 배포하면 된다.
 

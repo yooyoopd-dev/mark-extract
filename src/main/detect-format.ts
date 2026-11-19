@@ -9,7 +9,7 @@ import { extname } from "node:path";
 import JSZip from "jszip";
 import { readFile } from "node:fs/promises";
 
-export type DocFormat = "pdf" | "docx" | "xlsx" | "xls" | "pptx" | "protected" | "unknown";
+export type DocFormat = "pdf" | "docx" | "xlsx" | "xls" | "pptx" | "html" | "eml" | "protected" | "unknown";
 
 const ZIP = Buffer.from([0x50, 0x4b, 0x03, 0x04]); // PK\x03\x04
 const OLE2 = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
@@ -81,5 +81,10 @@ export async function detectFormat(filePath: string): Promise<DocFormat> {
     return "unknown";
   }
 
+  // HTML·EML 은 글자 파일이라 매직 바이트가 없다. 위의 판별을 모두 지난 뒤에만
+  // 확장자로 받는다 — PDF 를 .html 로 저장한 파일은 여전히 PDF 로 간다.
+  const ext = extname(filePath).toLowerCase();
+  if (ext === ".html" || ext === ".htm") return "html";
+  if (ext === ".eml") return "eml";
   return "unknown";
 }

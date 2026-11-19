@@ -7,7 +7,7 @@
 import type { DocOptions as ParseOptions, InputMode, ParseResult, Provider } from "./parse";
 
 export type DocStatus = "queued" | "run" | "done" | "failed";
-export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx";
+export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx" | "html" | "eml";
 
 /**
  * 인스펙터에서 바꾸는 문서별 추출 옵션.
