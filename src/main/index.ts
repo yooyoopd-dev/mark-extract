@@ -33,7 +33,10 @@ void app.whenReady().then(async () => {
 });
 
 // 돌고 있는 자바 프로세스와 앱이 띄운 OCR 서버를 남기지 않는다.
-app.on("before-quit", () => {
+// before-quit 가 아니라 will-quit 이다 (build.38): 저장 안 한 md 가 있어 사용자가 창
+// 닫기를 취소하면 종료도 취소되는데, before-quit 는 그 전에 불려 변환과 OCR 서버를
+// 이미 꺼 버린다. will-quit 는 창이 모두 닫혀 정말 끝날 때만 온다.
+app.on("will-quit", () => {
   stopAll();
   shutdown();
   stopOcrServer();

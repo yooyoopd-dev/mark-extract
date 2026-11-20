@@ -7,6 +7,7 @@
  */
 import { icon, esc } from "../markdown.js";
 import { counts, KIND_LABEL, needsOcr, STATUS, state, visibleDocs, type Doc } from "../state.js";
+import { isUnsaved } from "./editor.js";
 
 function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -31,7 +32,7 @@ function card(doc: Doc): string {
   return `
     <button class="doc" role="option" data-id="${doc.id}" aria-selected="${state.selected === doc.id}" tabindex="-1">
       <div class="doc-top">
-        <span class="doc-name od-truncate">${esc(doc.name)}</span>
+        <span class="doc-name od-truncate">${isUnsaved(doc) ? '<b class="unsaved" title="저장하지 않음">●</b> ' : ""}${esc(doc.name)}</span>
         <span class="status ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
       </div>
       <div class="doc-meta">${KIND_LABEL[doc.kind]} · ${sizeLabel(doc.size)} · ${timeLabel(doc.addedAt)}</div>
@@ -67,7 +68,7 @@ export function renderList(host: HTMLElement): void {
         <p class="empty-sub">${
           searching
             ? "검색어나 상태 필터를 바꿔 보세요."
-            : "파일을 이 창에 끌어다 놓으세요. PDF · DOCX · XLSX · XLS · PPTX · HTML · EML 을 Markdown 으로 바꿉니다."
+            : "파일을 이 창에 끌어다 놓으세요. PDF · DOCX · XLSX · XLS · PPTX · HTML · EML 을 Markdown 으로 바꾸고, MD 는 바로 열어 고칩니다."
         }</p>
         <button class="btn" id="emptyAction">${searching ? "필터 초기화" : "파일 추가"}</button>
       </div>`;

@@ -5,7 +5,8 @@
  * 파일을 반출할 수 없어 이 탭이 유일한 자가진단 수단이므로 전체 복사 버튼을 둔다.
  */
 import { esc, highlightMarkdown, icon, renderMarkdown } from "../markdown.js";
-import { isDirty, KIND_LABEL, markdown, needsOcr, state, type Doc } from "../state.js";
+import { bodyReady, isDirty, KIND_LABEL, markdown, needsOcr, state, type Doc } from "../state.js";
+import { currentText, isUnsaved, previewHtml } from "./editor.js";
 
 function emptyPanel(): string {
   return `
@@ -149,6 +150,12 @@ export function logText(doc: Doc): string {
   ].join("\n");
 }
 
+/** 미리보기 HTML 이 늦게 도착하면 다시 그린다. app.ts 가 넣어 준다. */
+let rerender: () => void = () => undefined;
+export const setRerender = (fn: () => void): void => {
+  rerender = fn;
+};
+
 export function renderViewer(
   panel: HTMLElement,
   crumbs: HTMLElement,
@@ -158,6 +165,8 @@ export function renderViewer(
 ): void {
   // 일부 쪽만 그림뿐인 PDF (build.37). 변환은 됐으니 결과 위에 띠로만 알린다.
   const bare = doc?.status === "done" ? doc.result?.warnings.find((w) => w.code === "IMAGE_ONLY_PAGES") : undefined;
+  // EUC-KR 로 읽은 md (build.38). 저장하면 UTF-8 로 바뀐다는 것을 미리 알린다.
+  const encoding = doc?.kind === "md" ? doc.result?.warnings.find((w) => w.code === "ENCODING_CONVERTED") : undefined;
   dirtyBar.innerHTML =
     (doc && isDirty(doc)
       ? `<div class="dirty">
@@ -172,7 +181,8 @@ export function renderViewer(
           <span>${esc(bare.message)}</span>
           <button class="btn-mini" data-retry="retry-with-ocr">OCR 로 다시 변환</button>
         </div>`
-      : "");
+      : "") +
+    (encoding ? `<div class="notice">${icon("i-alert", "icon icon-sm")}<span>${esc(encoding.message)}</span></div>` : "");
 
   if (!doc) {
     crumbs.innerHTML = "";
@@ -182,7 +192,8 @@ export function renderViewer(
   }
 
   // 형식 뒤의 꺾쇠(⌄)는 눌러도 아무 일이 없는 장식이었다. 이름과 형식만 둔다.
-  crumbs.innerHTML = `<b class="cur" title="${esc(doc.name)}">${esc(doc.name)}</b><span class="seg">${KIND_LABEL[doc.kind]}</span>`;
+  const mark = isUnsaved(doc) ? '<b class="unsaved" title="저장하지 않음">●</b>' : "";
+  crumbs.innerHTML = `${mark}<b class="cur" title="${esc(doc.name)}">${esc(doc.name)}</b><span class="seg">${KIND_LABEL[doc.kind]}</span>`;
   const warnings = doc.result?.warnings.length ?? 0;
   warnCount.textContent = warnings > 0 ? String(warnings) : "";
 
@@ -211,6 +222,30 @@ export function renderViewer(
 
   if (state.tab === "log") {
     panel.innerHTML = logPanel(doc);
+    return;
+  }
+
+  // md 문서의 미리보기 (build.38). 편집 탭은 app.ts 가 고정 편집 영역으로 바꿔 보인다.
+  if (doc.kind === "md") {
+    // 편집 탭이면 이 패널은 가려져 있다. 그리지 않는다 — 글자마다 미리보기를 또 부른다.
+    if (state.tab === "source") {
+      panel.innerHTML = "";
+      return;
+    }
+    if (!bodyReady(doc)) {
+      panel.innerHTML = `<div class="empty">${icon("i-loader", "icon")}<p class="empty-sub">본문을 불러오는 중…</p></div>`;
+      return;
+    }
+    const src = currentText(doc, markdown());
+    if (src.trim() === "") {
+      panel.innerHTML = `<div class="empty"><p class="empty-title">빈 문서입니다</p><p class="empty-sub">[편집] 탭에서 쓰세요.</p></div>`;
+      return;
+    }
+    const html = previewHtml(src, rerender);
+    panel.innerHTML =
+      html === null
+        ? `<div class="empty">${icon("i-loader", "icon")}<p class="empty-sub">그리는 중…</p></div>`
+        : `<article class="reading"><div class="reading-inner">${html}</div></article>`;
     return;
   }
 

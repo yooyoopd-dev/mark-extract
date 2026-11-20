@@ -493,3 +493,25 @@ legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-
 .cli-row.run .icon { color: var(--accent); animation: spin 1.1s linear infinite; }
 .settings-more { margin-top: 14px; }
 .settings-more > summary { cursor: pointer; font-size: 12.5px; color: var(--text-secondary); padding: 4px 0; }
+
+/* ── md 편집기 (build.38) ─────────────────────────────
+   넓은 창은 원문 | 미리보기 두 칸, 좁은 창은 원문만 (미리보기는 탭으로). */
+.viewer > #panelScroll, .viewer > .editor { grid-row: 3; }
+.viewer > #panelScroll[hidden], .editor[hidden] { display: none; }
+/* md 문서는 변환 로그 탭·옵션 버튼을 감춘다. .tab · .tb-tool 의 display 가 [hidden] 을 덮는다. */
+.tab[hidden], .tb-tool[hidden] { display: none; }
+.app[data-kind="md"] .vbar-div { display: none; }
+.editor { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); min-height: 0; border-top: 1px solid var(--border-subtle); }
+.editor textarea {
+  resize: none; border: 0; outline: none; margin: 0; padding: 20px 24px 80px;
+  background: var(--surface-app); color: var(--text-primary);
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace; font-size: 13.5px; line-height: 1.7;
+  tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; height: 100%;
+}
+.edit-preview { border-left: 1px solid var(--border-subtle); padding: 20px 28px 80px; }
+.edit-preview .reading-inner { margin: 0; }
+@media (max-width: 1100px) {
+  .editor { grid-template-columns: minmax(0,1fr); }
+  .edit-preview { display: none; }
+}
+.unsaved { color: var(--accent); font-weight: 700; margin-right: 2px; }

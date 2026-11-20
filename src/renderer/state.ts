@@ -74,7 +74,10 @@ export function setDocs(next: readonly Doc[]): void {
  * 본문 캐시 열쇠. 재변환하면 상태가 queued → run → done 으로 지나가므로 열쇠가
  * 바뀌고, 그래서 낡은 본문을 다시 쓰지 않는다.
  */
-export const bodyKey = (doc: Doc): string => `${doc.id}:${doc.status}`;
+export const bodyKey = (doc: Doc): string => `${doc.id}:${doc.status}:${doc.rev ?? 0}`;
+
+/** 본문을 받아 두었는가. 빈 md 문서는 본문이 "" 라서 markdown() 만으로는 모른다. */
+export const bodyReady = (doc: Doc): boolean => state.body?.key === bodyKey(doc);
 
 export const markdown = (): string => {
   const doc = getDoc(state.selected);
@@ -90,6 +93,7 @@ export const KIND_LABEL: Record<DocKind, string> = {
   pptx: "PPTX",
   html: "HTML",
   eml: "EML",
+  md: "MD",
 };
 
 export const STATUS = {

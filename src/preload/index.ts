@@ -8,7 +8,7 @@
  * sandbox: true 라서 이 파일은 CommonJS 로 컴파일된다 (tsconfig.node.json).
  */
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { AddResult, CliStatus, DocOptions, DocView, ExportResult, MarkExtractApi, OcrStatus, Settings, WatchFolder, WindowAction } from "../shared/api";
+import type { AddResult, CliStatus, DocOptions, DocView, ExportResult, MarkExtractApi, MdSaveOutcome, OcrStatus, Settings, WatchFolder, WindowAction } from "../shared/api";
 
 const call = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>;
@@ -31,6 +31,12 @@ const api: MarkExtractApi = {
     ipcRenderer.on("doc:changed", listener);
     return () => ipcRenderer.removeListener("doc:changed", listener);
   },
+
+  newMd: () => call<DocView>("md:new"),
+  renderMd: (text) => call<string>("md:render", text),
+  saveMd: (id, text, force = false) => call<MdSaveOutcome>("md:save", id, text, force),
+  saveMdAs: (id, text) => call<MdSaveOutcome | null>("md:saveAs", id, text),
+  setUnsaved: (count) => call<void>("md:unsaved", count),
 
   pickOutputDir: () => call<string | null>("export:pickDir"),
   exportMarkdown: (request) => call<ExportResult>("export:markdown", request),

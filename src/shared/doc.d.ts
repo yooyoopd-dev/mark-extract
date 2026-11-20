@@ -7,7 +7,7 @@
 import type { DocOptions as ParseOptions, InputMode, ParseResult, Provider } from "./parse";
 
 export type DocStatus = "queued" | "run" | "done" | "failed";
-export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx" | "html" | "eml";
+export type DocKind = "pdf" | "docx" | "xlsx" | "xls" | "pptx" | "html" | "eml" | "md";
 
 /**
  * 인스펙터에서 바꾸는 문서별 추출 옵션.
@@ -40,6 +40,11 @@ export interface DocView {
   readonly startedAt?: number;
   /** 지금까지 받은 본문 글자 수. 총량을 모르는 엔진의 진행 표시. */
   readonly chars?: number;
+  /**
+   * 본문 판. md 문서(build.38)는 저장·다시 읽기로 상태가 "완료" 그대로인 채 본문이
+   * 바뀐다. 렌더러의 본문 캐시가 이것으로 낡음을 안다.
+   */
+  readonly rev?: number;
 }
 
 export interface WatchFolder {
@@ -159,3 +164,9 @@ export interface CliStatus {
   /** 어디를 어떻게 찾았는지. 실패했을 때 그대로 띄운다. */
   readonly report: readonly string[];
 }
+
+/** md 저장 결과 (build.38). `conflict` 는 다른 프로그램이 그 사이 파일을 고쳤다는 뜻이다. */
+export type MdSaveOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly conflict: true }
+  | { readonly ok: false; readonly conflict: false; readonly message: string };

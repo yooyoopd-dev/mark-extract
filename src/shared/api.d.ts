@@ -1,7 +1,7 @@
 /** preload 가 contextBridge 로 노출하는 표면. preload 와 렌더러가 함께 쓴다. */
-import type { CliStatus, DocOptions, DocView, ExportResult, OcrStatus, Settings, WatchFolder } from "./doc";
+import type { CliStatus, DocOptions, DocView, ExportResult, MdSaveOutcome, OcrStatus, Settings, WatchFolder } from "./doc";
 
-export type { CliStatus, DocKind, DocOptions, DocStatus, DocView, ExportResult, OcrStatus, Settings, WatchFolder } from "./doc";
+export type { CliStatus, DocKind, DocOptions, DocStatus, DocView, ExportResult, MdSaveOutcome, OcrStatus, Settings, WatchFolder } from "./doc";
 export type { ParseResult } from "./parse";
 
 export type WindowAction = "minimize" | "maximize" | "close";
@@ -39,6 +39,17 @@ export interface MarkExtractApi {
   initialFiles(): Promise<string[]>;
   /** 큐가 바뀔 때마다 부른다. 구독을 끊는 함수를 돌려준다. */
   onChanged(handler: (docs: DocView[]) => void): () => void;
+
+  /* Markdown 편집 (build.38) */
+  newMd(): Promise<DocView>;
+  /** 미리보기 HTML. 원문의 HTML 태그는 글자로 나온다 */
+  renderMd(text: string): Promise<string>;
+  /** 그 파일에 저장. `force` 면 바깥 수정을 무시하고 덮어쓴다 */
+  saveMd(id: string, text: string, force?: boolean): Promise<MdSaveOutcome>;
+  /** 다른 이름으로 저장. 취소하면 null */
+  saveMdAs(id: string, text: string): Promise<MdSaveOutcome | null>;
+  /** 저장 안 한 문서 수를 main 에 알린다. 창을 닫을 때 묻는 데 쓴다 */
+  setUnsaved(count: number): Promise<void>;
 
   /* 내보내기 */
   pickOutputDir(): Promise<string | null>;
