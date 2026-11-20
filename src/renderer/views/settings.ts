@@ -8,7 +8,7 @@
  * 흔한 실수이기 때문이다.
  */
 import { esc, icon } from "../markdown.js";
-import type { CliStatus, Settings, WatchFolder } from "../../shared/doc";
+import type { CliStatus, OcrStatus, Settings, WatchFolder } from "../../shared/doc";
 
 export type Pane = "convert" | "llm" | "ocr" | "general";
 
@@ -18,10 +18,10 @@ export interface SettingsView {
   /** CLI 탐지 결과. 아직 안 돌렸으면 null */
   readonly cli: readonly CliStatus[] | null;
   readonly ollama: { ok: boolean; models: string[]; detail: string } | null;
-  /** hybrid 서버 연결 테스트 결과. 아직 안 눌렀으면 null */
-  readonly hybrid: { ok: boolean; detail: string; ms: number } | null;
-  /** OCR 서버를 띄운 결과. 아직 안 눌렀으면 null */
-  readonly ocrStart: { ok: boolean; detail: string } | null;
+  /** OCR 서버 상태. main 이 방송한다 (build.37) */
+  readonly ocr: OcrStatus;
+  /** 설치·직접 구동 명령. 처음 열 때 받아 온다 */
+  readonly ocrCommands: { install: string; run: string } | null;
   /** 프롬프트 전문을 펼쳤는가 */
   readonly promptOpen: boolean;
   readonly prompt: string;
@@ -282,128 +282,117 @@ function looksRemote(url: string): boolean {
   }
 }
 
-const cmd = (id: string, text: string, runId = ""): string => `
+const cmd = (id: string, text: string): string => `
   <div class="ocr-cmd">
     <code id="${id}">${esc(text)}</code>
     <button type="button" class="btn od-fixed" data-copy="${id}">${icon("i-copy", "icon icon-sm")}<span>복사</span></button>
-    ${
-      runId === ""
-        ? ""
-        : `<button type="button" class="btn od-fixed" id="${runId}">${icon("i-zap", "icon icon-sm")}<span>실행</span></button>`
-    }
   </div>`;
 
-/**
- * 구동 명령의 포트는 설정 주소에서 뽑는다. main 의 `ocr-server.ts` 와 같은 판정이고,
- * `looksRemote` 가 `isRemote` 를 따라 적은 것과 같은 이유로 여기 한 번 더 적는다 —
- * 렌더러는 main 을 import 하지 않는다.
- *
- * 전에는 5002 가 글로 박혀 있어서, 주소를 7000 으로 바꿔 둔 PC 에서 화면이 틀린
- * 명령을 보여 주었다.
- */
-function ocrStartCommand(hybridUrl: string): string {
-  let port = "5002";
-  try {
-    port = new URL(hybridUrl.trim()).port || port;
-  } catch {
-    /* 주소가 비었거나 형식이 아니면 기본 포트 */
-  }
-  return `opendataloader-pdf-hybrid --port ${port} --force-ocr --ocr-lang "ko,en"`;
+function elapsed(since: number | undefined): string {
+  if (since === undefined) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+  return seconds < 60 ? `${seconds}초` : `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
 }
 
+/** 상태 한 덩어리. 판정은 main 이 /health 로 한다 — 여기서는 그리기만. */
+function ocrState(view: SettingsView): string {
+  const o = view.ocr;
+  const where = o.managed ? "앱이 띄운 서버" : "앱 밖에서 실행 중인 서버";
+
+  switch (o.phase) {
+    case "on":
+      return `
+        <div class="cli-row ok">
+          <span class="cli-head">${icon("i-check", "icon icon-sm")}<b>켜져 있습니다</b>
+            <span class="cli-path">${esc(o.url)} · ${where}</span></span>
+          <span class="cli-detail">OCR 을 켠 PDF 와 이미지로 된 PDF 를 이 서버가 읽습니다.</span>
+        </div>`;
+    case "starting":
+      return `
+        <div class="cli-row run">
+          <span class="cli-head">${icon("i-loader", "icon icon-sm")}<b>켜는 중 · ${esc(elapsed(o.since))}</b></span>
+          <span class="cli-detail">처음에는 OCR 모델을 내려받느라 몇 분 걸릴 수 있습니다. 준비되면 저절로 켜짐으로 바뀝니다.</span>
+          ${o.lastLine ? `<span class="cli-path od-truncate">${esc(o.lastLine)}</span>` : ""}
+        </div>`;
+    case "failed":
+      return `
+        <div class="cli-row miss">
+          <span class="cli-head">${icon("i-alert", "icon icon-sm")}<b>켜지 못했습니다</b></span>
+          <span class="cli-detail">${esc(o.detail)}</span>
+          ${o.missing && view.ocrCommands ? cmd("ocrInstall", view.ocrCommands.install) : ""}
+          ${o.tail ? `<pre class="cli-report"><code>${esc(o.tail)}</code></pre>` : ""}
+        </div>`;
+    default:
+      return `
+        <div class="cli-row">
+          <span class="cli-head"><b>꺼져 있습니다</b></span>
+          <span class="cli-detail">켜 두지 않아도 됩니다. OCR 이 필요한 문서를 변환하면 앱이 알아서 켭니다.</span>
+        </div>`;
+  }
+}
+
+/**
+ * OCR 절 (build.37 에서 다시 짰다).
+ *
+ * 전에는 설치 명령 · 구동 명령 [실행] · 주소 · [연결 테스트] · "새 PDF 에 OCR 켜 두기" 가
+ * 한 화면에 있었고, 사용자는 설정에서 켜고 · 테스트하고 · 옵션에서 또 켜야 했다.
+ * 이제 상태와 버튼 하나다. 주소와 직접 구동 명령은 [고급] 안에 둔다.
+ */
 function ocrPane(view: SettingsView): string {
   const s = view.settings;
+  const o = view.ocr;
   const remote = s.hybridUrl !== "" && looksRemote(s.hybridUrl);
+  // 앱 밖에서 띄운 서버는 앱이 끄지 않는다.
+  const button =
+    o.phase === "on"
+      ? o.managed
+        ? `<button type="button" class="btn" id="ocrStop">끄기</button>`
+        : ""
+      : o.phase === "starting"
+        ? `<button type="button" class="btn" id="ocrStop">취소</button>`
+        : `<button type="button" class="btn primary" id="ocrStart">${icon("i-zap", "icon icon-sm")}<span>OCR 서버 켜기</span></button>`;
 
   return `
     <fieldset>
       <legend>OCR 서버</legend>
       <p class="settings-hint">
-        PDF 엔진의 로컬 파이프라인에는 <b>OCR 이 없습니다.</b> 텍스트 레이어가 없는 스캔
-        문서는 별도 서버에 넘겨야 인식됩니다. 이 서버는 앱에 포함되어 있지 않아 따로
-        설치·구동하셔야 합니다.
+        스캔한 PDF 처럼 <b>글자가 그림으로 된 문서</b>는 OCR 서버가 읽습니다.
       </p>
-      ${cmd("ocrInstall", 'pip install "opendataloader-pdf[hybrid]"')}
-      ${cmd("ocrStart", ocrStartCommand(s.hybridUrl), "startOcrServer")}
-      <p class="settings-hint">
-        [실행] 을 누르면 <b>검정 터미널 창이 뜨고 그 안에서 서버가 계속 돕니다.</b> 창을
-        닫으면 서버가 꺼집니다. 앱을 닫아도 서버는 남습니다. 몇 초 뒤 아래 [연결 테스트]
-        를 눌러 확인하세요. 설치가 안 된 PC 에서는 그 창에 "명령을 찾을 수 없습니다" 가
-        남으니, 위 1번 명령을 먼저 실행하세요.
-      </p>
-      ${
-        view.ocrStart === null
-          ? ""
-          : view.ocrStart.ok
-            ? `<div class="cli-row ok">
-                 <span class="cli-head">
-                   ${icon("i-check", "icon icon-sm")}
-                   <b>터미널 창을 띄웠습니다</b>
-                 </span>
-                 <span class="cli-path">${esc(view.ocrStart.detail)}</span>
-               </div>`
-            : `<div class="cli-row miss">
-                 <span class="cli-head">
-                   ${icon("i-alert", "icon icon-sm")}
-                   <b>띄우지 못했습니다</b>
-                 </span>
-                 <span class="cli-detail">${esc(view.ocrStart.detail)}</span>
-               </div>`
-      }
-
-      ${field(
-        "hybridUrl",
-        "서버 주소",
-        `<input id="hybridUrl" data-set="hybridUrl" type="text" value="${esc(s.hybridUrl)}"
-                placeholder="예: http://127.0.0.1:5002 (비우면 OCR 을 쓰지 않습니다)">`,
-        "비워 두면 인스펙터의 OCR 토글이 잠깁니다.",
-      )}
+      ${ocrState(view)}
+      <div class="od-row settings-actions">${button}</div>
 
       <label class="check">
-        <input type="checkbox" id="ocrByDefault" data-set="ocrByDefault" ${s.ocrByDefault ? "checked" : ""}>
-        <span class="txt"><b>새 PDF 에 OCR 켜 두기</b><span>앞으로 큐에 들어오는 PDF 에만 적용됩니다. 주소가 비어 있으면 켜 두어도 OCR 을 쓰지 않습니다</span></span>
+        <input type="checkbox" id="ocrAutoStart" data-set="ocrAutoStart" ${s.ocrAutoStart ? "checked" : ""}>
+        <span class="txt"><b>앱을 켤 때 OCR 서버도 켜기</b><span>스캔 문서를 자주 다루면 켜 두세요. 서버는 메모리를 많이 씁니다.</span></span>
       </label>
 
-      ${
-        remote
-          ? `<p class="settings-warn">
-               ${icon("i-alert", "icon icon-sm")}
-               루프백이 아닌 주소입니다. OCR 을 켜면 <b>PDF 원본이 ${esc(s.hybridUrl)} 로 전송됩니다.</b>
-               사내 규정에 맞는 서버인지 확인하세요.
-             </p>`
-          : ""
-      }
-
-      <div class="od-row settings-actions">
-        <button type="button" class="btn" id="testHybrid">
-          ${icon("i-refresh", "icon icon-sm")}<span>연결 테스트</span>
-        </button>
-      </div>
-
-      ${
-        view.hybrid === null
-          ? ""
-          : view.hybrid.ok
-            ? `<div class="cli-row ok">
-                 <span class="cli-head">
-                   ${icon("i-check", "icon icon-sm")}
-                   <b>연결됨</b>
-                   <span class="cli-path">${esc(view.hybrid.detail)} · ${view.hybrid.ms}ms</span>
-                 </span>
-                 <span class="cli-detail">인스펙터에서 문서마다 OCR 을 켤 수 있습니다.</span>
-               </div>`
-            : `<div class="cli-row miss">
-                 <span class="cli-head">
-                   ${icon("i-alert", "icon icon-sm")}
-                   <b>연결되지 않음</b>
-                 </span>
-                 <span class="cli-detail">${esc(view.hybrid.detail)}</span>
-                 <pre class="cli-report"><code>확인할 것:
-  1) 위 2번 명령으로 서버를 띄웠는지
-  2) 포트 번호가 주소와 같은지
-  3) 방화벽이 그 포트를 막고 있지 않은지</code></pre>
-               </div>`
-      }
+      <details class="settings-more">
+        <summary>고급 — 설치 · 주소 · 직접 띄우기</summary>
+        ${
+          view.ocrCommands
+            ? `<p class="settings-hint">처음 한 번 설치가 필요합니다 (Python 3.11 이상).</p>
+               ${cmd("ocrInstallAdv", view.ocrCommands.install)}
+               <p class="settings-hint">앱 밖에서 직접 띄우려면 (앱은 떠 있는 서버를 찾아 씁니다):</p>
+               ${cmd("ocrRun", view.ocrCommands.run)}`
+            : ""
+        }
+        ${field(
+          "hybridUrl",
+          "서버 주소",
+          `<input id="hybridUrl" data-set="hybridUrl" type="text" value="${esc(s.hybridUrl)}"
+                  placeholder="비우면 http://127.0.0.1:5002">`,
+          "이 PC 의 주소면 앱이 서버를 띄웁니다. 다른 PC 의 주소면 연결만 합니다.",
+        )}
+        ${
+          remote
+            ? `<p class="settings-warn">
+                 ${icon("i-alert", "icon icon-sm")}
+                 이 PC 가 아닌 주소입니다. OCR 을 쓰면 <b>PDF 원본이 ${esc(s.hybridUrl)} 로 전송됩니다.</b>
+                 사내 규정에 맞는 서버인지 확인하세요.
+               </p>`
+            : ""
+        }
+      </details>
     </fieldset>`;
 }
 

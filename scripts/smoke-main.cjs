@@ -133,7 +133,8 @@ app.whenReady().then(async () => {
         var tries = 0;
         var timer = setInterval(function () {
           var cards = document.querySelectorAll("#docList .doc").length;
-          var done = document.querySelectorAll("#docList .status.done").length;
+          // 이미지 PDF 는 "OCR 필요"(.status.warn) 로 끝난다 — 그것도 끝난 것이다.
+          var done = document.querySelectorAll("#docList .status.done, #docList .status.warn").length;
           if ((cards > 0 && done === cards) || ++tries > 400) {
             clearInterval(timer);
             resolve({ cards: cards, done: done });
@@ -273,7 +274,7 @@ app.whenReady().then(async () => {
         resolve({
           ocrDisabled: ocrSw.hasAttribute("disabled"),
           structDisabled: stSw.hasAttribute("disabled"),
-          hint: (ocrSw.closest(".switchrow")?.textContent || "").includes("설정"),
+          hint: (ocrSw.closest(".switchrow")?.textContent || "").includes("자동으로 켭니다"),
           note: document.querySelectorAll(".inspector .insp-note").length,
         });
       }, 150));
@@ -281,8 +282,9 @@ app.whenReady().then(async () => {
 
     if (ocr.error) failures.push(ocr.error);
     else {
-      if (!ocr.ocrDisabled) failures.push("서버가 없는데 OCR 토글이 열려 있습니다");
-      if (!ocr.hint) failures.push("OCR 토글에 설정으로 보내는 안내가 없습니다");
+      // build.37: 서버가 꺼져 있어도 켤 수 있다 — 재변환할 때 앱이 서버를 띄운다.
+      if (ocr.ocrDisabled) failures.push("서버가 꺼져 있다고 OCR 토글이 잠겨 있습니다");
+      if (!ocr.hint) failures.push("OCR 토글에 '자동으로 켭니다' 안내가 없습니다");
       if (ocr.note !== 0) failures.push("OCR 이 꺼져 있는데 우선순위 안내가 떠 있습니다");
       // 선택한 문서가 PDF 일 때만 의미가 있다. sample-ko.pdf 가 목록에 있다.
       if (ocr.structDisabled) failures.push("PDF 인데 구조 트리 토글이 잠겨 있습니다");
@@ -423,43 +425,60 @@ app.whenReady().then(async () => {
       if (!selfTest.dialogFits) failures.push("자체 점검 창이 화면보다 큼 — 뒷부분을 볼 방법이 없습니다");
     }
 
-    // 2-f. 설정 → OCR 절. 구동 명령 옆의 [실행] 이 서버를 터미널 창에 띄우고,
-    //      명령의 포트는 설정 주소를 따른다 (build.32 요청). 누르지는 않는다 —
-    //      리눅스에 cmd.exe 가 없고, 눌리면 서버를 띄우려 한다.
+    // 2-f. 설정 → OCR 절 (build.37 에서 다시 짰다). 상태와 버튼 하나. [연결 테스트] ·
+    //      터미널 [실행] · "새 PDF 에 OCR 켜 두기" 는 없어야 한다. 켜기를 누르지는 않는다 —
+    //      러너에 서버가 없고, 누르면 띄우려 한다.
     const ocrPane = await win.webContents.executeJavaScript(`(async () => {
-      const wait = () => new Promise((r) => setTimeout(r, 120));
+      const wait = () => new Promise((r) => setTimeout(r, 200));
       document.querySelector("#tbSettings")?.click();
       await wait();
       document.querySelector('.settings-tabs .tab[data-pane="ocr"]')?.click();
       await wait();
       const r = {
-        test: !!document.querySelector("#testHybrid"),
-        start: !!document.querySelector("#startOcrServer"),
-        label: (document.querySelector("#startOcrServer")?.textContent ?? "").trim(),
-        command: (document.querySelector("#ocrStart")?.textContent ?? "").trim(),
+        gone: ["#testHybrid", "#startOcrServer", "#ocrByDefault"].filter((s) => document.querySelector(s)),
+        start: (document.querySelector("#ocrStart")?.textContent ?? "").trim(),
+        auto: !!document.querySelector("#ocrAutoStart"),
+        state: (document.querySelector("#settingsBody .cli-row")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+        command: (document.querySelector("#ocrRun")?.textContent ?? "").trim(),
       };
-
-      // 포트가 설정 주소를 따라가는지. 전에는 5002 가 글로 박혀 있어 주소를 바꿔 둔
-      // PC 에서 화면이 틀린 명령을 보여 주었다.
+      // 직접 구동 명령의 포트가 설정 주소를 따르는지.
       await window.markExtract.setSettings({ hybridUrl: "http://127.0.0.1:7111" });
       document.querySelector("#tbSettings").click();
       await wait();
-      r.moved = (document.querySelector("#ocrStart")?.textContent ?? "").trim();
+      r.moved = (document.querySelector("#ocrRun")?.textContent ?? "").trim();
       await window.markExtract.setSettings({ hybridUrl: "" });
-
       document.querySelector("#settingsOverlay").hidden = true;
       return r;
     })()`);
 
-    if (!ocrPane.test) failures.push("설정 OCR 절에 연결 테스트 버튼이 없습니다");
-    if (!ocrPane.start) failures.push("설정 OCR 절에 서버 실행 버튼이 없습니다");
-    else if (ocrPane.label !== "실행") failures.push(`서버 실행 버튼 문구가 다릅니다: ${ocrPane.label}`);
-    // 스모크는 hybridUrl 을 비워 두고 시작한다 → 기본 포트가 적혀 있어야 한다.
-    if (!ocrPane.command.includes("opendataloader-pdf-hybrid --port 5002")) {
-      failures.push(`구동 명령이 다릅니다: ${ocrPane.command}`);
+    if (ocrPane.gone.length > 0) failures.push(`설정 OCR 절에 없어야 할 것이 있습니다: ${ocrPane.gone.join(", ")}`);
+    if (!ocrPane.start.includes("OCR 서버 켜기")) failures.push(`OCR 서버 켜기 버튼이 없습니다: ${ocrPane.start}`);
+    if (!ocrPane.auto) failures.push("'앱을 켤 때 OCR 서버도 켜기' 가 없습니다");
+    if (!ocrPane.state.includes("꺼져 있습니다")) failures.push(`OCR 상태 줄이 다릅니다: ${ocrPane.state}`);
+    if (!ocrPane.command.includes("--host 127.0.0.1") || !ocrPane.command.includes("--port 5002")) {
+      failures.push(`직접 구동 명령이 다릅니다: ${ocrPane.command}`);
     }
-    if (!ocrPane.moved?.includes("--port 7111")) {
-      failures.push(`구동 명령의 포트가 설정 주소를 따르지 않습니다: ${ocrPane.moved}`);
+    if (!ocrPane.moved?.includes("--port 7111")) failures.push(`구동 명령의 포트가 주소를 따르지 않습니다: ${ocrPane.moved}`);
+
+    // 2-g. 이미지로 된 PDF (build.37). 빨간 실패가 아니라 "OCR 필요" 와 [OCR 로 변환].
+    const scan = await win.webContents.executeJavaScript(`(() => {
+      const card = [...document.querySelectorAll("#docList .doc")].find((el) => (el.textContent ?? "").includes("sample-scan"));
+      if (!card) return Promise.resolve({ error: "sample-scan 카드를 찾지 못함" });
+      const chip = card.querySelector(".status");
+      const r = { chipClass: chip?.className ?? "", chipText: (chip?.textContent ?? "").trim() };
+      card.click();
+      return new Promise((resolve) => setTimeout(() => {
+        r.box = !!document.querySelector("#panel .ocrbox");
+        r.failbox = !!document.querySelector("#panel .failbox");
+        r.button = (document.querySelector('#panel [data-retry="retry-with-ocr"]')?.textContent ?? "").trim();
+        resolve(r);
+      }, 300));
+    })()`);
+    if (scan.error) failures.push(scan.error);
+    else {
+      if (!scan.chipClass.includes("warn") || scan.chipText !== "OCR 필요") failures.push(`이미지 PDF 카드가 다릅니다: ${scan.chipClass} / ${scan.chipText}`);
+      if (scan.failbox || !scan.box) failures.push("이미지 PDF 가 빨간 실패 상자로 그려집니다");
+      if (!scan.button.includes("OCR 로 변환")) failures.push(`[OCR 로 변환] 버튼이 없습니다: ${scan.button}`);
     }
 
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,

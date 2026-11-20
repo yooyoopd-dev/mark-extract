@@ -171,20 +171,12 @@ try {
   check("표 감지 옵션이 어댑터까지 간다", args.includes("--table-method cluster"), args);
   check("본문은 그대로 다시 나온다", queue.markdownOf(pdf.id).length > 0 && plain.length > 0);
 
-  // 설정의 기본값이 새 문서에 실제로 심기는지 (build.25 요청). 이미 큐에 있는
-  // 문서는 건드리지 않는다 — 사용자가 인스펙터에서 손댄 값이 날아가면 안 된다.
+  // build.37: 새 문서에 OCR 을 심던 설정(ocrByDefault)을 없앴다. 화면은 "OCR 꺼짐" 으로
+  // 그리는데 실제로는 OCR 서버로 보내던 어긋남의 뿌리였다. 이제 새 문서에는 OCR 이 없다.
   const { updateSettings } = require(join(root, "out/main/settings.js"));
   updateSettings({ ocrByDefault: true });
-  const before = byName("sample-ko.pdf")?.options.ocr;
   await queue.add([fixture("sample-ko.pptx")]);
-  check("설정을 켜면 새 문서에 OCR 이 심긴다", byName("sample-ko.pptx")?.options.ocr === true);
-  check("이미 있던 문서는 그대로다", byName("sample-ko.pdf")?.options.ocr === before);
-  updateSettings({ ocrByDefault: false });
-  check("설정을 끄면 다시 꺼진 채로 들어온다", await (async () => {
-    for (const d of queue.list()) if (d.name === "sample-ko.pptx") queue.remove(d.id);
-    await queue.add([fixture("sample-ko.pptx")]);
-    return byName("sample-ko.pptx")?.options.ocr === false;
-  })());
+  check("옛 설정이 남아 있어도 새 문서에 OCR 을 심지 않는다", byName("sample-ko.pptx")?.options.ocr === undefined);
 
   /* ── 3b. IPC 경계가 옵션을 버리지 않는다 ──────────────── */
   //

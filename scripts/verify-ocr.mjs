@@ -9,7 +9,8 @@
  */
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -25,7 +26,8 @@ require.cache[require.resolve("electron")] = {
 };
 
 const { testHybrid, isRemote } = require(join(root, "out/main/hybrid-http.js"));
-const { serverCommand, serverCommandLine, serverPort, startServer } = require(join(root, "out/main/ocr-server.js"));
+const ocrServer = require(join(root, "out/main/ocr-server.js"));
+const { serverArgs, serverCommandLine, serverPort, ensureOcrServer, stopOcrServer, setCommandForVerify, ocrEvents } = ocrServer;
 const { buildArgs, failureReason, javaLogForVerify, parsePdf } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 
 const failures = [];
@@ -150,41 +152,30 @@ try {
   //
   // 동봉 JRE 로 진짜 CLI 를 돌린다.
   //
-  // build.34 에서 뜻이 바뀌었다. 전에는 "서버가 없으면 실패한다" 를 단언했는데, 그
-  // 동작이 바로 사용자 보고의 실패였다 — 인스펙터는 서버가 죽어 있으면 OCR 스위치를
-  // 꺼진 채 그리는데, "새 PDF 에 OCR 켜 두기" 가 심은 ocr: true 때문에 실제로는
-  // 죽은 서버를 불렀다. 이제는 시작 전에 /health 를 보고, 답이 없으면 OCR 없이
-  // 변환하되 경고로 알린다.
+  // build.37 에서 또 뜻이 바뀌었다. build.34 는 "서버가 없으면 OCR 없이 변환" 했는데,
+  // 그것은 OCR 이 설정 기본값으로 심기던 시절의 보호막이었다. 이제 OCR 은 사용자가
+  // **직접** 켤 때만 붙고, 그때 서버가 없으면 앱이 띄운다. 띄울 수 없으면 조용히 OCR
+  // 을 빼지 않고 사유와 함께 실패한다. 여기서는 실행 파일이 없는 경우로 고정한다 —
+  // 검증 PC 에 진짜 서버가 깔려 있으면 진짜로 떠 버리기 때문이다.
   console.log("\n서버 미구동 (실제 실행)");
 
   const fixture = join(root, "test/fixtures/sample-ko.pdf");
+  setCommandForVerify(join(work, "없는-실행파일"));
   const down = await parsePdf({ filePath: fixture, options: { ocr: true }, hybridUrl: DEAD });
-  const downArgs = down.log.find((e) => e.label === "인자")?.value ?? "";
 
-  check("서버가 없어도 OCR 없이 변환된다", down.ok === true, JSON.stringify(down.error));
-  check("--hybrid 를 붙이지 않는다", !downArgs.includes("--hybrid"), downArgs);
-  check(
-    "OCR 을 건너뛴 사실이 경고로 남는다",
-    down.warnings.some((w) => w.code === "OCR_SKIPPED" && w.message.includes(DEAD)),
-    JSON.stringify(down.warnings.map((w) => w.code)),
-  );
-  check(
-    "로그에도 건너뛴 사유가 남는다",
-    down.log.some((e) => e.label === "OCR" && e.value.includes("건너뜀")),
-    JSON.stringify(down.log.filter((e) => e.label === "OCR")),
-  );
-  check(
-    "건너뛰었으면 OCR 제한 시간을 쓰지 않는다",
-    down.log.some((e) => e.label === "제한 시간" && e.value === "30분") &&
-      !down.log.some((e) => e.label === "OCR" && e.value.includes("hybrid 서버")),
-    JSON.stringify(down.log.filter((e) => e.label === "제한 시간" || e.label === "OCR")),
-  );
+  check("띄울 수 없으면 실패한다", down.ok === false, JSON.stringify(down.error?.code));
+  check("사유를 OCR 서버로 특정한다", down.error?.code === "OCR_SERVER_UNAVAILABLE", down.error?.code);
+  check("설치가 안 됐다고 말한다", String(down.error?.message).includes("설치"), down.error?.message);
+  check("OCR 설정으로 가는 버튼을 준다", down.error?.actions.includes("open-ocr-settings"), JSON.stringify(down.error?.actions));
+  check("Java 는 띄우지 않았다", !down.log.some((e) => e.label === "인자"), JSON.stringify(down.log.map((e) => e.label)));
+  stopOcrServer();
 
   /* ── 4-b. /health 는 답하는데 변환은 못 하는 서버 ───── */
   //
   // 시작 전 확인을 지나면 --hybrid 를 붙인다. 그 뒤의 실패는 지금처럼 실패다 — 변환
   // 도중 조용히 Java 경로로 되돌리지 않는다 (결정 6).
   console.log("\n/health 만 답하는 서버 (실제 실행)");
+  // 떠 있는 서버를 찾아 쓴다 — 앱이 띄우지 않는다.
 
   const half = await parsePdf({ filePath: fixture, options: { ocr: true }, hybridUrl: live });
   const halfArgs = half.log.find((e) => e.label === "인자")?.value ?? "";
@@ -232,9 +223,10 @@ try {
   check("그대로 재시도를 제안한다", half.error?.actions.includes("retry-plain"), JSON.stringify(half.error?.actions));
   server.close();
 
+  stopOcrServer();
   const plain = await parsePdf({ filePath: fixture, options: {}, hybridUrl: DEAD });
   check("OCR 을 끄면 그대로 변환된다", plain.ok === true, JSON.stringify(plain.error));
-  check("OCR 을 끄면 서버를 보지 않는다", !plain.warnings.some((w) => w.code === "OCR_SKIPPED"), JSON.stringify(plain.warnings));
+  check("OCR 을 끄면 서버를 띄우지 않는다", ocrServer.ocrStatus().phase === "off", ocrServer.ocrStatus().phase);
 
   /* ── 5. stderr 레벨 가르기 ────────────────────────── */
   //
@@ -319,33 +311,125 @@ try {
   check("잘려도 끝부분이 남는다", longReason.includes("마지막 줄이 사유다"), longReason.slice(-60));
   check("자른 것을 알린다", longReason.includes("앞부분 생략"), longReason.slice(0, 80));
 
-  /* ── 7. OCR 서버를 터미널에 띄운다 ────────────────── */
+  /* ── 7. OCR 서버를 앱이 띄운다 (build.37) ─────────── */
   //
-  // 화면은 구동 명령을 글로만 보여 주고 복사 버튼만 있었다. 포트도 5002 가 박혀
-  // 있어 주소를 바꿔 둔 PC 에서 틀린 명령을 보여 주었다 (build.32 요청).
-  console.log("\nOCR 서버 실행");
-  const cmdOf = (url) => serverCommand(url).join(" ");
+  // 가짜 서버로 상태 기계를 본다. 가짜는 진짜가 사내 PC 에서 찍은 첫 줄
+  // ("ERROR - Preset … already registered")을 그대로 찍는다 — 그 줄이 실패로 읽혔다.
+  // 판정은 /health 하나여야 한다.
+  console.log("\nOCR 서버 관리");
 
-  check("주소의 포트를 따른다", cmdOf("http://127.0.0.1:7000").includes("--port 7000"), cmdOf("http://127.0.0.1:7000"));
-  check("기본 주소는 5002", cmdOf("http://127.0.0.1:5002").includes("--port 5002"), "");
+  const args = serverArgs("http://127.0.0.1:7000").join(" ");
+  check("주소의 포트를 따른다", args.includes("--port 7000"), args);
+  // 이것이 빠지면 서버가 0.0.0.0 에 열려 사내망의 다른 PC 가 PDF 를 보낼 수 있다 (사내 PC 실측).
+  check("이 PC 에만 연다 (--host 127.0.0.1)", args.includes("--host 127.0.0.1"), args);
   for (const [name, url] of [["빈 주소", ""], ["포트 없는 주소", "http://ocr.example"], ["형식이 아닌 값", "그냥글자"]]) {
     check(`${name} 이면 5002 로 떨어진다`, serverPort(url) === "5002", serverPort(url));
   }
-  check("실행 파일 이름", cmdOf("").startsWith("opendataloader-pdf-hybrid "), cmdOf(""));
-  check("--force-ocr 를 붙인다", cmdOf("").includes("--force-ocr"), "");
-  check("--ocr-lang ko,en 을 붙인다", cmdOf("").includes("--ocr-lang ko,en"), "");
-  // 화면에 띄우는 줄은 사람이 복사해 쓰는 것이라 ko,en 을 따옴표로 감싼다.
-  check("화면용 줄은 ko,en 을 감싼다", serverCommandLine("").includes('--ocr-lang "ko,en"'), serverCommandLine(""));
+  check("--force-ocr · --ocr-lang ko,en", args.includes("--force-ocr") && args.includes("--ocr-lang ko,en"), args);
+  check("복사용 줄은 ko,en 을 감싼다", serverCommandLine("").includes('--ocr-lang "ko,en"'), serverCommandLine(""));
+  check("복사용 줄에도 --host 가 있다", serverCommandLine("").includes("--host 127.0.0.1"), serverCommandLine(""));
 
-  // win32 가 아닌 분기. **플랫폼을 반드시 넘긴다** — 이 검증은 Windows 러너에서도
-  // 돌고, 거기서 실제 플랫폼으로 부르면 진짜로 cmd 창이 뜬다. build.32 의 첫 판이
-  // 그렇게 깨졌다(러너 정리 로그에 orphan cmd·conhost 가 남았다). 사람 없는 러너에
-  // 창을 남기는 검증은 쓰지 않는다.
-  const here = startServer("http://127.0.0.1:5002", "linux");
-  check("Windows 가 아니면 띄우지 않는다", here.ok === false, JSON.stringify(here));
-  check("그때 명령을 글로 알려 준다", here.detail.includes("opendataloader-pdf-hybrid"), here.detail);
-  // win32 분기는 단언하지 않는다. 부르는 것이 곧 창을 띄우는 것이라 검증에서 부를
-  // 수 없다. 창이 뜨는 것은 사내 PC 실측이다.
+  const fake = join(work, "fake-hybrid.cjs");
+  const seen = join(work, "fake-seen.txt");
+  writeFileSync(
+    fake,
+    `const http = require("node:http");
+const fs = require("node:fs");
+const argv = process.argv.slice(2);
+const port = Number(argv[argv.indexOf("--port") + 1]);
+fs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv, utf8: process.env.PYTHONUTF8 }) + "\\n");
+console.error("2026-11-20 10:46:33,739 - ERROR - Preset 'granite_vision_v4' already registered");
+const mode = process.env.FAKE_MODE || "ok";
+if (mode === "exit") { console.error("ModuleNotFoundError: No module named 'docling'"); process.exit(3); }
+console.log("INFO - Loading plugin 'docling_defaults'");
+if (mode === "never") setInterval(() => {}, 1000);
+else setTimeout(() => {
+  http.createServer((req, res) => { res.setHeader("content-type", "application/json"); res.end('{"status":"ok"}'); })
+    .listen(port, "127.0.0.1", () => console.log("INFO: Uvicorn running on http://127.0.0.1:" + port));
+}, Number(process.env.FAKE_DELAY || 800));
+`,
+  );
+  const freePort = () =>
+    new Promise((resolve) => {
+      const probe = createNetServer().listen(0, "127.0.0.1", () => {
+        const port = probe.address().port;
+        probe.close(() => resolve(port));
+      });
+    });
+  const seenLines = () => (existsSync(seen) ? readFileSync(seen, "utf8").trim().split("\n").filter(Boolean) : []);
+
+  setCommandForVerify(process.execPath, [fake], 8000);
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const phases = [];
+  const lastLines = [];
+  const onChange = (st) => {
+    phases.push(st.phase);
+    if (st.lastLine) lastLines.push(st.lastLine);
+  };
+  ocrEvents.on("changed", onChange);
+
+  // 두 문서가 동시에 OCR 을 요청한다. 서버는 하나만 떠야 한다.
+  const [first, second] = await Promise.all([ensureOcrServer(url), ensureOcrServer(url)]);
+  check("준비되면 켜짐", first.phase === "on" && second.phase === "on", `${first.phase}/${second.phase}: ${first.detail}`);
+  check("ERROR 로그가 있어도 켜짐으로 본다", lastLines.length > 0 && first.phase === "on", JSON.stringify(lastLines.slice(0, 2)));
+  check("켜는 중 → 켜짐 순서로 방송한다", phases.indexOf("starting") >= 0 && phases.indexOf("starting") < phases.indexOf("on"), JSON.stringify(phases));
+  check("앱이 띄운 서버로 적는다", first.managed === true, JSON.stringify(first));
+  check("동시 요청에도 서버는 하나", seenLines().length === 1, String(seenLines().length));
+  const launched = JSON.parse(seenLines()[0] ?? "{}");
+  check("실제 인자에 --host 127.0.0.1", (launched.argv ?? []).join(" ").includes("--host 127.0.0.1"), JSON.stringify(launched.argv));
+  check("UTF-8 모드로 띄운다 (PYTHONUTF8=1)", launched.utf8 === "1", String(launched.utf8));
+  check("이미 켜져 있으면 다시 띄우지 않는다", (await ensureOcrServer(url)).phase === "on" && seenLines().length === 1, String(seenLines().length));
+
+  stopOcrServer();
+  await new Promise((r) => setTimeout(r, 400));
+  check("끄면 꺼짐", ocrServer.ocrStatus().phase === "off", ocrServer.ocrStatus().phase);
+  check("끄면 프로세스도 끝난다", (await testHybrid(url)).ok === false, "");
+
+  // 준비 전에 끝나는 서버 — 의존성이 빠진 설치 같은 경우. 로그 꼬리를 보여 줘야 한다.
+  process.env.FAKE_MODE = "exit";
+  const crashed = await ensureOcrServer(`http://127.0.0.1:${await freePort()}`);
+  check("준비 전에 끝나면 실패", crashed.phase === "failed", crashed.detail);
+  check("사유가 '준비되기 전에 끝났습니다'", crashed.detail.includes("준비되기 전에 끝났습니다"), crashed.detail);
+  check("로그 꼬리를 남긴다", String(crashed.tail).includes("No module named"), String(crashed.tail));
+
+  // 끝나지도 준비되지도 않는 서버 — 제한 시간에 끊는다.
+  process.env.FAKE_MODE = "never";
+  setCommandForVerify(process.execPath, [fake], 1500);
+  const hung = await ensureOcrServer(`http://127.0.0.1:${await freePort()}`);
+  check("제한 시간 안에 준비되지 않으면 실패", hung.phase === "failed" && hung.detail.includes("준비되지 않았습니다"), hung.detail);
+  delete process.env.FAKE_MODE;
+
+  // 실행 파일이 없다 — 설치 안내로.
+  setCommandForVerify(join(work, "없는-실행파일"));
+  const missing = await ensureOcrServer(`http://127.0.0.1:${await freePort()}`);
+  check("설치되어 있지 않으면 missing", missing.phase === "failed" && missing.missing === true, JSON.stringify(missing));
+
+  // 앱 밖에서 이미 떠 있는 서버는 그대로 쓰고, 끄지 않는다.
+  const outside = createServer((_req, res) => res.end('{"status":"ok"}'));
+  await new Promise((resolve) => outside.listen(0, "127.0.0.1", resolve));
+  const outsideUrl = `http://127.0.0.1:${outside.address().port}`;
+  const external = await ensureOcrServer(outsideUrl);
+  check("떠 있는 서버를 찾아 쓴다", external.phase === "on" && external.managed === false, JSON.stringify(external));
+  stopOcrServer();
+  check("앱 밖의 서버는 끄지 않는다", (await testHybrid(outsideUrl)).ok === true, "");
+  outside.close();
+
+  // 원격 주소는 띄우지 않는다.
+  setCommandForVerify(process.execPath, [fake], 8000);
+  const before = seenLines().length;
+  const remote = await ensureOcrServer("http://ocr.invalid:5002");
+  check("원격 주소면 띄우지 않고 실패", remote.phase === "failed" && seenLines().length === before, remote.detail);
+  ocrEvents.off("changed", onChange);
+
+  // OCR 을 켠 PDF: 서버가 꺼져 있으면 앱이 띄운 뒤 --hybrid 로 변환한다.
+  stopOcrServer();
+  const autoUrl = `http://127.0.0.1:${await freePort()}`;
+  const auto = await parsePdf({ filePath: fixture, options: { ocr: true }, hybridUrl: autoUrl });
+  const autoArgs = auto.log.find((e) => e.label === "인자")?.value ?? "";
+  check("OCR 을 켜면 서버를 띄운다", ocrServer.ocrStatus().phase === "on" && ocrServer.ocrStatus().managed, JSON.stringify(ocrServer.ocrStatus()));
+  check("띄운 뒤 그 서버로 변환한다", autoArgs.includes(`--hybrid-url ${autoUrl}`), autoArgs);
+  stopOcrServer();
 
   /* ── 8. 기존 인자가 그대로인지 ────────────────────── */
   console.log("\n회귀");

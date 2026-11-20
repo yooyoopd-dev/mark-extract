@@ -119,15 +119,20 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
 단언을 걸지 않았다 — 같은 검사를 PDF 자료로 한다(opendataloader 는 셀 안에 그대로
 둔다).
 
-## sample-scan.pdf (build.34)
+## sample-scan.pdf (build.34) · sample-mixed.pdf (build.37)
 
 글자 레이어가 없는 두 쪽짜리 PDF. 스캔 문서는 쪽 전체가 그림 한 장이라 엔진이 그림
 참조만 내고, 위치 표시로 바뀐 결과가 비어 있지 않아 **성공**으로 나왔다.
 
+`sample-mixed.pdf` 는 1쪽이 `sample-ko.pdf` 의 글자 쪽, 2쪽이 스캔 쪽이다 — 변환은 성공이고
+2쪽이 "그림만 있는 쪽" 으로 잡혀야 한다.
+
 ```
-pip install pillow
+pip install pillow pypdf
 python3 test/fixtures/make-scan-sample.py
 ```
+
+다시 돌리면 `sample-scan.pdf` 의 바이트가 바뀐다(생성 시각). 커밋된 것을 되돌려 쓴다.
 
 ## sample-euckr.html · sample-ko.eml · sample-text.eml (build.34)
 

@@ -20,7 +20,7 @@ require.cache[require.resolve("electron")] = { exports: { app: { isPackaged: fal
 const { convert } = require(join(root, "out/main/convert.js"));
 const { probe } = require(join(root, "out/main/parsers/pdf-opendataloader.js"));
 const { detectFormat } = require(join(root, "out/main/detect-format.js"));
-const { hasText, noteImages } = require(join(root, "out/main/image-notes.js"));
+const { hasText, imageOnlyPages, noteImages } = require(join(root, "out/main/image-notes.js"));
 const { decodeHtml } = require(join(root, "out/main/parsers/html.js"));
 
 const failures = [];
@@ -427,9 +427,27 @@ console.log("\nsample-scan.pdf (글자 레이어 없음)");
 {
   const scan = await convert({ filePath: fixture("sample-scan.pdf") });
   check("성공으로 내지 않는다", scan.ok === false, JSON.stringify(scan.markdown.slice(0, 80)));
-  check("빈 결과로 분류한다", scan.error?.code === "EMPTY_OUTPUT", scan.error?.code);
-  check("스캔 문서라고 말한다", String(scan.error?.message).includes("스캔"), scan.error?.message);
+  // build.37: 프로그램의 실패처럼 보이지 않게 따로 분류한다. 화면은 이 코드를 보고
+  // 빨간 실패 대신 [OCR 로 변환] 안내를 그린다.
+  check("이미지 PDF 로 분류한다 (NEEDS_OCR)", scan.error?.code === "NEEDS_OCR", scan.error?.code);
+  check("이미지로 된 PDF 라고 말한다", String(scan.error?.message).includes("이미지로 된 PDF"), scan.error?.message);
   check("OCR 재시도를 제안한다", scan.error?.actions.includes("retry-with-ocr"), JSON.stringify(scan.error?.actions));
+}
+
+/* ── 일부 쪽만 이미지인 PDF (build.37) ───────────────── */
+console.log("\nsample-mixed.pdf (1쪽 글자 · 2쪽 스캔)");
+{
+  const mixed = await convert({ filePath: fixture("sample-mixed.pdf") });
+  const bare = mixed.warnings.find((w) => w.code === "IMAGE_ONLY_PAGES");
+  check("변환은 성공이다", mixed.ok === true, mixed.error?.message);
+  check("그림만 있는 쪽을 알린다", bare !== undefined, JSON.stringify(mixed.warnings.map((w) => w.code)));
+  check("2쪽만 적는다", bare?.message.startsWith("2쪽") === true, bare?.message);
+
+  // 합성 입력. 구분자 없이 그림만 있는 문서(pptx 등)는 쪽을 지어내지 않는다.
+  const P = (n) => `<!-- markextract-page ${n} -->`;
+  check("쪽 판정 — 글자 쪽은 빼고 그림 쪽만", JSON.stringify(imageOnlyPages([P(1), "본문", P(2), "![](<a.png>)", P(3), "![](<b.png>)", "설명 글"].join("\n"))) === "[2]");
+  check("쪽 판정 — 구분자가 없으면 빈 목록", imageOnlyPages("![](<a.png>)").length === 0);
+  check("쪽 판정 — 빈 쪽은 그림 쪽이 아니다", imageOnlyPages([P(1), "", P(2), "글"].join("\n")).length === 0);
 }
 
 /* ── 뒷정리 ───────────────────────────────────────────── */

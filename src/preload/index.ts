@@ -8,7 +8,7 @@
  * sandbox: true 라서 이 파일은 CommonJS 로 컴파일된다 (tsconfig.node.json).
  */
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { AddResult, CliStatus, DocOptions, DocView, ExportResult, MarkExtractApi, Settings, WatchFolder, WindowAction } from "../shared/api";
+import type { AddResult, CliStatus, DocOptions, DocView, ExportResult, MarkExtractApi, OcrStatus, Settings, WatchFolder, WindowAction } from "../shared/api";
 
 const call = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>;
@@ -46,10 +46,15 @@ const api: MarkExtractApi = {
   promptText: () => call<string>("llm:prompt"),
   selfTest: () => call<string>("app:self-test"),
   ollamaModels: () => call<{ ok: boolean; models: string[]; detail: string }>("llm:ollamaModels"),
-  /** hybrid OCR 서버가 살아 있는지. url 을 주면 그 주소로, 없으면 설정값으로 본다. */
-  testHybrid: (url?: string) => call<{ ok: boolean; detail: string; ms: number }>("hybrid:test", url),
-  /** OCR 서버 구동 명령을 터미널 창에 띄운다. */
-  startOcrServer: () => call<{ ok: boolean; detail: string }>("hybrid:start"),
+  ocrStatus: () => call<OcrStatus>("ocr:status"),
+  startOcrServer: () => call<OcrStatus>("ocr:start"),
+  stopOcrServer: () => call<OcrStatus>("ocr:stop"),
+  ocrCommands: () => call<{ install: string; run: string }>("ocr:commands"),
+  onOcrChanged: (handler) => {
+    const listener = (_event: unknown, status: OcrStatus): void => handler(status);
+    ipcRenderer.on("ocr:changed", listener);
+    return () => ipcRenderer.removeListener("ocr:changed", listener);
+  },
 
   window: (action: WindowAction) => call<void>("window:action", action),
 };

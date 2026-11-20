@@ -1,7 +1,7 @@
 /** preload 가 contextBridge 로 노출하는 표면. preload 와 렌더러가 함께 쓴다. */
-import type { CliStatus, DocOptions, DocView, ExportResult, Settings, WatchFolder } from "./doc";
+import type { CliStatus, DocOptions, DocView, ExportResult, OcrStatus, Settings, WatchFolder } from "./doc";
 
-export type { CliStatus, DocKind, DocOptions, DocStatus, DocView, ExportResult, Settings, WatchFolder } from "./doc";
+export type { CliStatus, DocKind, DocOptions, DocStatus, DocView, ExportResult, OcrStatus, Settings, WatchFolder } from "./doc";
 export type { ParseResult } from "./parse";
 
 export type WindowAction = "minimize" | "maximize" | "close";
@@ -65,16 +65,16 @@ export interface MarkExtractApi {
   /** 자체 점검을 돌리고 결과 전문을 돌려준다. 수십 초 걸릴 수 있다. */
   selfTest(): Promise<string>;
   ollamaModels(): Promise<{ ok: boolean; models: string[]; detail: string }>;
-  /** hybrid OCR 서버가 살아 있는지 (7단계). url 을 주면 그 주소로, 없으면 설정값으로. */
-  testHybrid(url?: string): Promise<{ ok: boolean; detail: string; ms: number }>;
 
-  /**
-   * OCR 서버 구동 명령을 터미널 창에 띄운다 (build.32 요청).
-   *
-   * 프로세스를 앱에 붙여 두지 않는다 — 서버는 앱보다 오래 살아야 하고, 창을 닫는
-   * 것이 서버를 끄는 방법이다. 살아 있는지는 `testHybrid` 가 본다.
-   */
-  startOcrServer(): Promise<{ ok: boolean; detail: string }>;
+  /* OCR 서버 — 앱이 띄우고 관리한다 (build.37) */
+  ocrStatus(): Promise<OcrStatus>;
+  /** 시작만 건다. 준비되는 과정은 onOcrChanged 로 온다 */
+  startOcrServer(): Promise<OcrStatus>;
+  /** 앱이 띄운 서버만 끈다 */
+  stopOcrServer(): Promise<OcrStatus>;
+  /** 설치·직접 구동 명령 (복사용) */
+  ocrCommands(): Promise<{ install: string; run: string }>;
+  onOcrChanged(handler: (status: OcrStatus) => void): () => void;
 
   /* 창 — 프레임이 없어 캡션 버튼을 우리가 그린다 */
   window(action: WindowAction): Promise<void>;

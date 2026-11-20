@@ -90,8 +90,6 @@ function defaultOptions(): DocOptions {
     engine: s.defaultEngine,
     imageOutput: s.imageOutput,
     timeoutMs: timeoutMin * 60_000,
-    // PDF 가 아니면 어댑터가 보지 않고, 주소가 비어 있으면 --hybrid 를 붙이지 않는다.
-    ocr: s.ocrByDefault,
   };
   if (s.defaultEngine !== "llm") return options;
 

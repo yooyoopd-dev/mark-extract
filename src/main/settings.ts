@@ -27,7 +27,7 @@ const DEFAULTS: Settings = {
   maxFileSizeMb: 500,
   ollamaUrl: "http://127.0.0.1:11434",
   hybridUrl: "http://127.0.0.1:5002",
-  ocrByDefault: false,
+  ocrAutoStart: false,
 };
 
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
@@ -45,7 +45,9 @@ const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback
  * 값 하나가 이상하다고 앱이 뜨지 못하면 안 되므로, 아는 범위로 끌어오고 모르는
  * 값은 기본값으로 되돌린다.
  */
-function normalize(raw: Settings): Settings {
+function normalize(input: Settings): Settings {
+  // build.37 에서 없앤 키. 옛 설정 파일에 남아 있어도 다시 저장되지 않게 떼어 낸다.
+  const { ocrByDefault: _dropped, ...raw } = input as Settings & { ocrByDefault?: unknown };
   return {
     ...raw,
     concurrency: clamp(raw.concurrency, 1, 4, DEFAULTS.concurrency),
@@ -70,7 +72,7 @@ function normalize(raw: Settings): Settings {
       : DEFAULTS.ollamaUrl,
     // 빈 문자열을 기본값으로 되돌리지 않는다 — "OCR 안 씀" 이 정당한 상태다.
     hybridUrl: typeof raw.hybridUrl === "string" ? raw.hybridUrl.trim() : DEFAULTS.hybridUrl,
-    ocrByDefault: typeof raw.ocrByDefault === "boolean" ? raw.ocrByDefault : DEFAULTS.ocrByDefault,
+    ocrAutoStart: typeof raw.ocrAutoStart === "boolean" ? raw.ocrAutoStart : DEFAULTS.ocrAutoStart,
   };
 }
 

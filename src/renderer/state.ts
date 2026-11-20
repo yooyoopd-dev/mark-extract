@@ -8,9 +8,9 @@
  * 마크다운 본문은 스냅샷에 싣지 않는다(문서당 수백 KB). 선택한 문서 것만
  * doc:markdown 으로 따로 받아 `body` 에 둔다.
  */
-import type { DocKind, DocOptions, DocStatus, DocView, WatchFolder } from "../shared/doc";
+import type { DocKind, DocOptions, DocStatus, DocView, OcrStatus, WatchFolder } from "../shared/doc";
 
-export type { DocKind, DocOptions, DocStatus, DocView, WatchFolder };
+export type { DocKind, DocOptions, DocStatus, DocView, OcrStatus, WatchFolder };
 export type Doc = DocView;
 export type Tab = "render" | "source" | "log";
 export type Sort = "modified" | "name" | "size";
@@ -40,12 +40,10 @@ export interface State {
   outputDir: string | null;
   frontmatter: boolean;
   /**
-   * hybrid OCR 서버가 살아 있는가 (7단계).
-   *
-   * 인스펙터 OCR 토글의 자물쇠다. 주소가 적혀 있는 것과 서버가 사는 것은 다르므로
-   * 설정에서 연결 테스트를 통과했을 때만 열린다.
+   * OCR 서버 상태 (build.37). main 이 들고 있고 바뀔 때마다 방송한다 — 연결 테스트를
+   * 누를 일이 없다. 전에는 이것이 `hybridOk` 라는 자물쇠였고, 테스트를 눌러야 열렸다.
    */
-  hybridOk: boolean;
+  ocr: OcrStatus;
 }
 
 export const docs: Doc[] = [];
@@ -64,7 +62,7 @@ export const state: State = {
   draft: null,
   outputDir: null,
   frontmatter: true,
-  hybridOk: false,
+  ocr: { phase: "off", detail: "꺼져 있습니다.", url: "", managed: false },
 };
 
 export function setDocs(next: readonly Doc[]): void {
@@ -126,6 +124,12 @@ export function isDirty(doc: Doc): boolean {
   ] as const;
   return keys.some((k) => state.draft?.options[k] !== doc.options[k]);
 }
+
+/**
+ * 이미지로 된 PDF (build.37). 상태는 failed 지만 프로그램의 실패가 아니라서 화면은
+ * 따로 그린다 — 빨간 "실패" 대신 "OCR 필요", 실패 상자 대신 [OCR 로 변환].
+ */
+export const needsOcr = (doc: Doc): boolean => doc.status === "failed" && doc.result?.error?.code === "NEEDS_OCR";
 
 const FILTER: Record<StatusFilter, (d: Doc) => boolean> = {
   all: () => true,

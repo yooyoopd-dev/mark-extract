@@ -26,7 +26,9 @@ export type RetryAction =
   | "retry-plain"
   | "retry-with-ocr"
   | "retry-mode-b"
-  | "retry-with-password";
+  | "retry-with-password"
+  /** OCR 서버를 띄울 수 없을 때. 설정의 OCR 절로 보낸다 (build.37) */
+  | "open-ocr-settings";
 
 export interface ParseError {
   readonly code: string;

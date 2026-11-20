@@ -8,8 +8,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as queue from "./queue";
 import { settings, updateSettings } from "./settings";
 import { addWatch, removeWatch } from "./watch";
-import { testHybrid } from "./hybrid-http";
-import { startServer } from "./ocr-server";
+import { ocrEvents, ocrStatus, serverCommandLine, startOcrServer, stopOcrServer, INSTALL_COMMAND } from "./ocr-server";
 import { probeCli } from "./llm/launch";
 import { clearCache, resolveCli } from "./llm/resolve";
 import { providerOf } from "./llm/providers";
@@ -170,15 +169,20 @@ export function registerIpc(): void {
 
   /* OCR — hybrid 서버 --------------------------------- */
   //
-  // 본문 변환은 Java CLI 가 --hybrid-url 로 직접 부른다. 여기서 HTTP 는 살아 있는지
-  // 보는 것 하나뿐이고, 그 결과가 인스펙터 OCR 토글의 자물쇠를 연다.
-  ipcMain.handle("hybrid:test", (_e, url?: unknown) =>
-    testHybrid(typeof url === "string" && url.trim() !== "" ? url : settings().hybridUrl),
-  );
-
-  // 서버 구동 명령을 터미널 창에 띄운다. 프로세스를 앱에 붙여 두지 않는다 —
-  // 서버는 앱보다 오래 살아야 한다 (ocr-server.ts).
-  ipcMain.handle("hybrid:start", () => startServer(settings().hybridUrl));
+  // 본문 변환은 Java CLI 가 --hybrid-url 로 직접 부른다. build.37 에서 [연결 테스트]
+  // 채널(hybrid:test)을 없앴다 — 준비 판정은 ocr-server.ts 가 /health 로 하고 방송한다.
+  // OCR 서버는 앱이 띄우고 관리한다 (build.37, ocr-server.ts). 상태가 바뀔 때마다
+  // ocr:changed 로 방송하므로 화면은 연결 테스트를 따로 누를 일이 없다.
+  ipcMain.handle("ocr:status", () => ocrStatus());
+  ipcMain.handle("ocr:start", () => startOcrServer(settings().hybridUrl));
+  ipcMain.handle("ocr:stop", () => {
+    stopOcrServer();
+    return ocrStatus();
+  });
+  ipcMain.handle("ocr:commands", () => ({
+    install: INSTALL_COMMAND,
+    run: serverCommandLine(settings().hybridUrl),
+  }));
 
   /* 설정 ------------------------------------------------ */
   ipcMain.handle("settings:get", () => settings());
@@ -190,7 +194,7 @@ export function registerIpc(): void {
     for (const key of ["concurrency", "llmTimeoutMin", "localTimeoutMin", "maxFileSizeMb"] as const) {
       if (typeof p[key] === "number") clean[key] = p[key] as number;
     }
-    for (const key of ["frontmatter", "ocrByDefault"] as const) {
+    for (const key of ["frontmatter", "ocrAutoStart"] as const) {
       if (typeof p[key] === "boolean") clean[key] = p[key] as boolean;
     }
     for (const key of ["model", "ollamaUrl", "hybridUrl"] as const) {
@@ -217,11 +221,14 @@ export function registerIpc(): void {
   });
 }
 
-/** 큐가 바뀔 때마다 열려 있는 창에 알린다. */
+/** 큐와 OCR 서버가 바뀔 때마다 열려 있는 창에 알린다. */
 export function broadcastChanges(): void {
   queue.events.on("changed", () => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("doc:changed", queue.list());
     }
+  });
+  ocrEvents.on("changed", (status) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send("ocr:changed", status);
   });
 }

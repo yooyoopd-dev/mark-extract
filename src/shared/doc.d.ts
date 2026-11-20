@@ -89,17 +89,42 @@ export interface Settings {
   /**
    * hybrid OCR 서버 주소 (결정 6).
    *
-   * 빈 문자열이면 OCR 을 쓰지 않는다는 뜻이고 인스펙터 토글이 잠긴다. 원격 주소도
-   * 받는데, 그러면 **PDF 원본이 그 서버로 나간다** — 설정 화면이 그 사실을 알린다.
+   * 비어 있으면 기본 주소(`http://127.0.0.1:5002`)를 쓴다 (build.37 — 전에는 "OCR 을
+   * 쓰지 않음" 이었다). 루프백이면 앱이 서버를 띄우고, 원격이면 연결만 확인한다.
+   * 원격이면 **PDF 원본이 그 서버로 나간다** — 설정 화면이 그 사실을 알린다.
    */
   hybridUrl: string;
   /**
-   * 새 PDF 에 OCR 을 켜 둘지.
+   * 앱을 켤 때 OCR 서버도 켤지 (build.37). 기본 끔 — 서버가 메모리를 많이 쓴다.
    *
-   * 스캔 문서가 대부분인 곳에서는 문서마다 토글을 켜는 것이 일이다. 주소가 비어
-   * 있으면 어댑터가 `--hybrid` 를 붙이지 않으므로 켜 두어도 해가 없다.
+   * build.25 의 `ocrByDefault`(새 PDF 에 OCR 켜 두기)를 대신한다. 그 값은 화면이
+   * "OCR 꺼짐" 으로 그리는 문서를 실제로는 OCR 서버로 보내는 어긋남의 뿌리였다.
    */
-  ocrByDefault: boolean;
+  ocrAutoStart: boolean;
+}
+
+/**
+ * OCR 서버 상태 (build.37). main 의 `ocr-server.ts` 가 들고 있고 바뀔 때마다 방송한다.
+ *
+ * 판정은 `/health` 하나로 한다. 서버 로그의 ERROR 줄은 보지 않는다 — docling 이 시작할
+ * 때 무해한 ERROR 를 찍고(사내 PC 실측), 그것이 실패로 읽혔다.
+ */
+export interface OcrStatus {
+  readonly phase: "off" | "starting" | "on" | "failed";
+  /** 화면에 그대로 띄울 한 줄 */
+  readonly detail: string;
+  /** 지금 쓰는 서버 주소 */
+  readonly url: string;
+  /** 앱이 띄운 서버인가. false 면 앱 밖에서 떠 있던 서버거나 원격 서버다 */
+  readonly managed: boolean;
+  /** 시작 중이면 시작 시각 */
+  readonly since?: number;
+  /** 서버가 마지막으로 찍은 줄. 시작이 오래 걸릴 때 멈춘 게 아니라는 표시가 된다 */
+  readonly lastLine?: string;
+  /** 실패면 서버 로그의 꼬리 */
+  readonly tail?: string;
+  /** 실행 파일을 찾지 못했다 — 설치 명령을 보여 준다 */
+  readonly missing?: boolean;
 }
 
 export interface ExportRequest {

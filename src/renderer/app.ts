@@ -109,7 +109,8 @@ async function syncBody(): Promise<void> {
 let ticking: number | null = null;
 
 function syncTicker(): void {
-  const running = docs.some((d) => d.status === "run");
+  // OCR 서버를 켜는 동안에도 경과 시간이 흐르게 한다.
+  const running = docs.some((d) => d.status === "run") || state.ocr.phase === "starting";
   if (running && ticking === null) {
     ticking = window.setInterval(render, 1000);
   } else if (!running && ticking !== null) {
@@ -191,12 +192,11 @@ function reconvert(doc: Doc, patch: DocOptions = {}): void {
 function applyRetry(doc: Doc, action: string): void {
   switch (action) {
     case "retry-with-ocr":
-      // 서버가 없으면 재변환해 봐야 같은 실패다. 연결하는 자리로 보낸다.
-      if (!state.hybridOk) {
-        void openSettings("ocr");
-        return;
-      }
+      // 서버가 꺼져 있어도 그대로 보낸다 — main 이 서버를 켜고 준비되면 변환한다
+      // (build.37). 전에는 설정 화면으로 보내 사용자가 켜고 · 테스트하고 · 돌아와야 했다.
       return reconvert(doc, { ocr: true });
+    case "open-ocr-settings":
+      return void openSettings("ocr");
     case "retry-mode-b":
       return reconvert(doc, { engine: "llm", inputMode: "B" });
     case "retry-with-password":
@@ -538,8 +538,8 @@ const settingsView: { -readonly [K in keyof SettingsView]: SettingsView[K] } = {
   pane: "convert",
   cli: null,
   ollama: null,
-  hybrid: null,
-  ocrStart: null,
+  ocr: state.ocr,
+  ocrCommands: null,
   promptOpen: false,
   prompt: "",
   version: "",
@@ -561,7 +561,8 @@ async function openSettings(pane?: Pane): Promise<void> {
 
   // 탐지와 모델 조회는 느릴 수 있다. 화면을 먼저 띄우고 채운다.
   if (settingsView.pane === "llm") void loadLlmStatus();
-  if (settingsView.pane === "ocr") void loadHybridStatus();
+  // 열 때마다 받는다 — 주소(포트)가 그 사이 바뀌었을 수 있다.
+  void loadOcrCommands();
 }
 
 const closeSettings = (): void => {
@@ -585,33 +586,19 @@ async function loadLlmStatus(): Promise<void> {
   paintSettings();
 }
 
-/**
- * hybrid 서버 연결 테스트.
- *
- * 결과는 설정 화면뿐 아니라 **인스펙터 OCR 토글의 자물쇠**도 연다. 찾았다고 도는
- * 것이 아니라는 6b 의 교훈과 같다 — 주소가 적혀 있는 것과 서버가 사는 것은 다르다.
- */
-async function loadHybridStatus(): Promise<void> {
-  settingsView.hybrid = null;
+/** 설치·직접 구동 명령. 포트가 설정 주소를 따르므로 main 에서 받는다. */
+async function loadOcrCommands(): Promise<void> {
+  settingsView.ocrCommands = await window.markExtract.ocrCommands();
   paintSettings();
-  const hybrid = await window.markExtract.testHybrid(settingsView.settings.hybridUrl);
-  settingsView.hybrid = hybrid;
-  state.hybridOk = hybrid.ok;
-  paintSettings();
-  render();
 }
 
-/**
- * OCR 서버를 터미널 창에 띄운다.
- *
- * 연결 테스트를 대신 눌러 주지 않는다. 서버가 뜨는 데 몇 초 걸리고, 우리가 바로
- * 눌러 실패로 적으면 사용자는 서버가 안 뜬 것으로 읽는다.
- */
-async function startOcrServer(): Promise<void> {
-  settingsView.ocrStart = null;
-  paintSettings();
-  settingsView.ocrStart = await window.markExtract.startOcrServer();
-  paintSettings();
+/** main 이 OCR 서버 상태를 방송할 때마다. 연결 테스트를 누를 일이 없다 (build.37). */
+function applyOcr(status: typeof state.ocr): void {
+  state.ocr = status;
+  settingsView.ocr = status;
+  render();
+  syncTicker();
+  if (!settingsOverlay.hidden) paintSettings();
 }
 
 /**
@@ -649,12 +636,8 @@ async function saveSetting(key: string, value: unknown): Promise<void> {
   if (key === "inputMode" || key === "language") {
     settingsView.prompt = await window.markExtract.promptText();
   }
-  // 주소가 바뀌면 이전 테스트 결과는 낡은 것이다. 토글도 같이 잠근다.
-  if (key === "hybridUrl") {
-    settingsView.hybrid = null;
-    state.hybridOk = false;
-    render();
-  }
+  // 주소가 바뀌면 직접 구동 명령의 포트도 바뀐다.
+  if (key === "hybridUrl") settingsView.ocrCommands = await window.markExtract.ocrCommands();
   // 프로바이더를 Ollama 로 바꾸면 모델 목록을 다시 받는다.
   if (key === "provider" || key === "ollamaUrl") {
     settingsView.ollama = null;
@@ -677,7 +660,6 @@ function bindSettings(): void {
       settingsView.pane = (tab.dataset["pane"] ?? "convert") as Pane;
       paintSettings();
       if (settingsView.pane === "llm" && settingsView.cli === null) void loadLlmStatus();
-      if (settingsView.pane === "ocr" && settingsView.hybrid === null) void loadHybridStatus();
     });
   }
 
@@ -707,8 +689,8 @@ function bindSettings(): void {
     if (target.closest("#copyPrompt")) {
       return void navigator.clipboard.writeText(settingsView.prompt).then(() => toast("프롬프트를 복사했습니다."));
     }
-    if (target.closest("#testHybrid")) return void loadHybridStatus();
-    if (target.closest("#startOcrServer")) return void startOcrServer();
+    if (target.closest("#ocrStart")) return void window.markExtract.startOcrServer().then(applyOcr);
+    if (target.closest("#ocrStop")) return void window.markExtract.stopOcrServer().then(applyOcr);
 
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {
@@ -806,6 +788,8 @@ dragAndDrop();
 
 // main 이 큐를 바꿀 때마다(변환 진행, 감시 폴더 유입) 스냅샷이 온다.
 window.markExtract.onChanged(apply);
+// OCR 서버 상태도 main 이 바뀔 때마다 보낸다 (build.37).
+window.markExtract.onOcrChanged(applyOcr);
 
 void (async () => {
   const settings = await window.markExtract.getSettings();
@@ -815,16 +799,9 @@ void (async () => {
   state.frontmatter = settings.frontmatter;
   applyTheme();
 
+  state.ocr = await window.markExtract.ocrStatus();
+  settingsView.ocr = state.ocr;
   await refresh();
-
-  // hybrid 서버가 살아 있는지 한 번 본다 — 인스펙터 OCR 토글의 자물쇠다. 3초
-  // 타임아웃이라 시작을 막지 않고, 실패해도 앱은 그대로 쓴다.
-  if (settings.hybridUrl !== "") {
-    void window.markExtract.testHybrid(settings.hybridUrl).then((hybrid) => {
-      state.hybridOk = hybrid.ok;
-      render();
-    });
-  }
 
   // 명령줄로 받은 문서. 탐색기에서 "연결 프로그램"으로 열 때 들어온다.
   await addPaths(await window.markExtract.initialFiles());

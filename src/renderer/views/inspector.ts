@@ -72,10 +72,9 @@ function pdfOptions(options: DocOptions): string {
   // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
   const strip = options.includeHeaderFooter !== true;
 
-  // OCR 은 hybrid 서버가 살아 있을 때만 켤 수 있다. 주소가 적혀 있는 것과 서버가
-  // 도는 것은 다르다 — 설정의 연결 테스트가 자물쇠다.
-  const ocrReady = state.hybridOk;
-  const ocr = options.ocr === true && ocrReady;
+  // OCR 은 서버 상태와 무관하게 켤 수 있다 (build.37). 켜고 재변환하면 main 이 서버를
+  // 띄우고 준비될 때까지 기다린다. 전에는 연결 테스트를 통과해야 풀리는 자물쇠였다.
+  const ocr = options.ocr === true;
   const structTree = options.useStructTree === true;
   // 실측: 태그드 PDF 에 둘 다 주면 CLI 가 구조 트리를 쓰고 서버를 부르지 않는다.
   const shadowed = ocr && structTree;
@@ -84,14 +83,12 @@ function pdfOptions(options: DocOptions): string {
     <div class="insp-sec">
       <h3>PDF</h3>
       <div class="switchrow">
-        <span class="txt"><b>OCR 사용</b><span>${
-          ocrReady
-            ? "글자 레이어가 없는 스캔 문서를 이미지에서 인식합니다. 시간이 오래 걸립니다."
-            : "OCR 서버가 연결되어 있지 않습니다. 설정 → OCR 에서 연결하세요."
+        <span class="txt"><b>OCR 사용</b><span>스캔한 쪽의 글자를 그림에서 읽습니다. ${
+          state.ocr.phase === "on"
+            ? "OCR 서버가 켜져 있습니다."
+            : "OCR 서버가 꺼져 있으면 재변환할 때 자동으로 켭니다."
         }</span></span>
-        <button class="sw" role="switch" data-opt="ocr" aria-checked="${ocr}" aria-label="OCR 사용" ${
-          ocrReady ? "" : "disabled"
-        }></button>
+        <button class="sw" role="switch" data-opt="ocr" aria-checked="${ocr}" aria-label="OCR 사용"></button>
       </div>
       ${
         ocr

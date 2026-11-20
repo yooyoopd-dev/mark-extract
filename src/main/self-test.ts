@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { convert } from "./convert";
 import { probe, resolveJar, resolveJava } from "./parsers/pdf-opendataloader";
 import { testHybrid } from "./hybrid-http";
+import { effectiveUrl } from "./ocr-server";
 import { probeCli } from "./llm/launch";
 import { resolveCli } from "./llm/resolve";
 import { PROVIDERS } from "./llm/providers";
@@ -103,13 +104,10 @@ async function environment(out: Out): Promise<void> {
   );
   for (const [label, value] of lines) out(label, value);
 
-  const url = settings().hybridUrl;
-  if (url === "") {
-    out("OCR 서버", "주소 없음 — OCR 을 쓰지 않습니다.");
-    return;
-  }
+  // 비어 있으면 기본 주소다 (build.37). 꺼져 있는 것은 정상 — 앱이 필요할 때 띄운다.
+  const url = effectiveUrl(settings().hybridUrl);
   const hybrid = await testHybrid(url);
-  out("OCR 서버", hybrid.ok ? `정상 (${url}, ${hybrid.ms}ms)` : `닿지 않습니다 (${url}) — ${hybrid.detail}`);
+  out("OCR 서버", hybrid.ok ? `정상 (${url}, ${hybrid.ms}ms)` : `꺼져 있습니다 (${url}) — OCR 이 필요하면 앱이 띄웁니다`);
 }
 
 /**

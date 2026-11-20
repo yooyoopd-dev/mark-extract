@@ -15,6 +15,8 @@ const samples = [
   join(root, "test/fixtures/sample-table.docx"),
   // build.34. 매직 바이트가 없는 두 형식이 명령줄 → 큐 → 어댑터를 실제로 지나는지.
   ...["html", "eml"].map((ext) => join(root, `test/fixtures/sample-ko.${ext}`)),
+  // build.37. 이미지로 된 PDF 가 빨간 실패가 아니라 OCR 안내로 그려지는지.
+  join(root, "test/fixtures/sample-scan.pdf"),
 ];
 const entry = ["scripts/smoke-main.cjs", ...samples];
 
@@ -52,6 +54,7 @@ console.log("  색 토큰: 라이트/다크 계산값이 design/index.html 과 �
 console.log("  preload: window.markExtract 표면 확인 (목록·본문·추가·구독·내보내기·감시·설정)");
 console.log("  렌더러: 목록·뷰어·변환 옵션이 모두 그려짐, 콘솔 오류 없음");
 console.log("  변환: 시험 자료 7종(HTML·EML 포함)이 UI 를 통해 변환되어 목록에 완료로 표시됨");
+console.log("  OCR: 이미지 PDF 는 'OCR 필요' + [OCR 로 변환] 안내, 설정은 켜기 버튼 하나");
 console.log("  스크롤: 뷰어가 넘치고 스크롤됨, 창은 뷰포트 안");
 console.log("  반응형: 1920·1440·1366·1024·700 에서 넘침 없음, 드로어·한 칸 전환 정상");
 console.log("  화면 정리: 사이드바·팔레트·상태바·즐겨찾기 없음, 설정 톱니, 옵션 패널 기본 닫힘");

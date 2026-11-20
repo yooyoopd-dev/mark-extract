@@ -79,9 +79,11 @@ try {
   check("0 은 최소 1분으로", updateSettings({ localTimeoutMin: 0 }).localTimeoutMin === 1);
   updateSettings({ localTimeoutMin: 30 });
 
-  check("기본은 꺼짐", settings().ocrByDefault === false);
-  check("켜면 저장된다", updateSettings({ ocrByDefault: true }).ocrByDefault === true);
-  check("이상한 값은 기본값으로", updateSettings({ ocrByDefault: "네" }).ocrByDefault === false);
+  // build.37: "새 PDF 에 OCR 켜 두기" 를 "앱을 켤 때 OCR 서버도 켜기" 로 바꿨다.
+  check("OCR 서버 자동 시작은 기본 꺼짐", settings().ocrAutoStart === false);
+  check("켜면 저장된다", updateSettings({ ocrAutoStart: true }).ocrAutoStart === true);
+  check("이상한 값은 기본값으로", updateSettings({ ocrAutoStart: "네" }).ocrAutoStart === false);
+  check("옛 ocrByDefault 는 다시 저장되지 않는다", !("ocrByDefault" in updateSettings({ ocrByDefault: true })));
   // 이미지 처리 (build.30). 옛 값 external·embedded 는 죽은 파일 참조를 내던
   // 선택지라 없앴다. 저장돼 있던 값이 조용히 남아 화면과 어긋나면 안 된다 —
   // oneOf 가 모르는 값으로 보고 새 기본값 note 로 되돌린다.
@@ -93,7 +95,7 @@ try {
   updateSettings({ imageOutput: "off" });
   check("모르는 값도 note 로", updateSettings({ imageOutput: "무엇" }).imageOutput === "note");
 
-  updateSettings({ concurrency: 1, llmTimeoutMin: 30, provider: "claude", ocrByDefault: false, imageOutput: "note" });
+  updateSettings({ concurrency: 1, llmTimeoutMin: 30, provider: "claude", ocrAutoStart: false, imageOutput: "note" });
 
   /* ── 2. 진단 리포트 ────────────────────────────────── */
   console.log("\nCLI 탐지 리포트");

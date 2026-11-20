@@ -6,7 +6,7 @@
  * 남긴다. 그것은 뷰어를 열기 전에 알아야 하는 것이다.
  */
 import { icon, esc } from "../markdown.js";
-import { counts, KIND_LABEL, STATUS, state, visibleDocs, type Doc } from "../state.js";
+import { counts, KIND_LABEL, needsOcr, STATUS, state, visibleDocs, type Doc } from "../state.js";
 
 function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -22,8 +22,12 @@ function timeLabel(at: number): string {
   return new Date(at).toLocaleDateString("ko-KR");
 }
 
+/** 이미지 PDF 는 빨간 실패가 아니다 (build.37). */
+const OCR_NEEDED = { label: "OCR 필요", icon: "i-image", cls: "warn" } as const;
+
 function card(doc: Doc): string {
-  const status = STATUS[doc.status];
+  const ocr = needsOcr(doc);
+  const status = ocr ? OCR_NEEDED : STATUS[doc.status];
   return `
     <button class="doc" role="option" data-id="${doc.id}" aria-selected="${state.selected === doc.id}" tabindex="-1">
       <div class="doc-top">
@@ -31,7 +35,13 @@ function card(doc: Doc): string {
         <span class="status ${status.cls}">${icon(status.icon, "icon icon-sm")}<span>${status.label}</span></span>
       </div>
       <div class="doc-meta">${KIND_LABEL[doc.kind]} · ${sizeLabel(doc.size)} · ${timeLabel(doc.addedAt)}</div>
-      ${doc.status === "failed" ? `<p class="doc-error od-truncate">${esc(doc.snippet)}</p>` : ""}
+      ${
+        ocr
+          ? `<p class="doc-note od-truncate">이미지로 된 PDF — OCR 로 글자를 읽을 수 있습니다</p>`
+          : doc.status === "failed"
+            ? `<p class="doc-error od-truncate">${esc(doc.snippet)}</p>`
+            : ""
+      }
       ${doc.status === "run" ? `<span class="bar"><i data-progress="${doc.progress ?? 0}"></i></span>` : ""}
     </button>`;
 }

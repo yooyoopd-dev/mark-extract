@@ -5,7 +5,7 @@
  * 파일을 반출할 수 없어 이 탭이 유일한 자가진단 수단이므로 전체 복사 버튼을 둔다.
  */
 import { esc, highlightMarkdown, icon, renderMarkdown } from "../markdown.js";
-import { isDirty, KIND_LABEL, markdown, state, type Doc } from "../state.js";
+import { isDirty, KIND_LABEL, markdown, needsOcr, state, type Doc } from "../state.js";
 
 function emptyPanel(): string {
   return `
@@ -13,6 +13,35 @@ function emptyPanel(): string {
       ${icon("i-files", "icon")}
       <p class="empty-title">문서를 선택하세요</p>
       <p class="empty-sub">목록에서 고르거나 파일을 끌어다 놓으세요.</p>
+    </div>`;
+}
+
+/** OCR 서버를 켜는 중이면 경과와 서버가 마지막으로 찍은 줄. 첫 실행은 몇 분 걸린다. */
+function ocrStarting(): string {
+  const ocr = state.ocr;
+  if (ocr.phase !== "starting") return "";
+  const elapsed = ocr.since === undefined ? "" : ` · ${elapsedLabel(ocr.since)}`;
+  return `
+    <p class="run-detail">OCR 서버를 켜는 중${esc(elapsed)} — 처음에는 모델을 내려받느라 몇 분 걸릴 수 있습니다.</p>
+    ${ocr.lastLine ? `<p class="run-line od-truncate">${esc(ocr.lastLine)}</p>` : ""}`;
+}
+
+/**
+ * 이미지로 된 PDF (build.37). 빨간 실패 상자가 아니라 다음 할 일 하나를 보인다.
+ * 버튼은 서버가 꺼져 있어도 누를 수 있다 — main 이 서버를 켜고 준비되면 변환한다.
+ */
+function needsOcrPanel(): string {
+  return `
+    <div class="ocrbox">
+      ${icon("i-image", "icon")}
+      <h2>이미지로 된 PDF 입니다</h2>
+      <p>이 PDF 에는 글자 레이어가 없어 바로 읽을 수 없습니다. OCR 로 그림 속 글자를 읽을 수 있습니다.</p>
+      <button class="btn primary" data-retry="retry-with-ocr">${icon("i-refresh", "icon icon-sm")}<span>OCR 로 변환</span></button>
+      <p class="ocrbox-sub">${
+        state.ocr.phase === "on"
+          ? "OCR 서버가 켜져 있습니다."
+          : "OCR 서버가 꺼져 있으면 자동으로 켭니다. 스캔 쪽이 많으면 몇 분 걸립니다."
+      }</p>
     </div>`;
 }
 
@@ -35,10 +64,12 @@ function failPanel(doc: Doc): string {
         <dt>엔진</dt><dd>${esc(doc.result?.meta.engine ?? "-")}</dd>
       </dl>
       <div class="fail-actions">
+        ${button("open-ocr-settings", "OCR 설정 열기", true)}
         ${button("retry-with-ocr", "OCR 을 켜고 재시도", true)}
         ${button("retry-with-password", "암호를 입력하고 재시도", true)}
         ${button("retry-mode-b", "로컬 파싱으로 재시도", true)}
         ${button("retry-plain", "그대로 재시도")}
+        <button class="btn" id="copyLog">${icon("i-copy", "icon icon-sm")}<span>로그 복사</span></button>
       </div>
     </div>`;
 }
@@ -75,6 +106,9 @@ function runningDetail(doc: Doc): string {
   if (doc.chars !== undefined && doc.chars > 0) {
     return `<p class="run-detail">${doc.chars.toLocaleString("ko-KR")}자 받음 · ${esc(elapsed)}</p>`;
   }
+
+  // OCR 을 켠 문서는 서버가 준비될 때까지 기다린다. 그동안 무엇을 기다리는지 보인다.
+  if (doc.options.ocr === true && state.ocr.phase === "starting") return ocrStarting();
 
   // 아직 한 글자도 오지 않았다. LLM 은 모델을 올리는 동안 아무것도 내놓지 않는다.
   return `<p class="run-detail">${elapsed === "" ? "시작하는 중…" : `${esc(elapsed)} 경과 · 첫 응답을 기다리는 중`}</p>`;
@@ -122,14 +156,23 @@ export function renderViewer(
   dirtyBar: HTMLElement,
   doc: Doc | null,
 ): void {
+  // 일부 쪽만 그림뿐인 PDF (build.37). 변환은 됐으니 결과 위에 띠로만 알린다.
+  const bare = doc?.status === "done" ? doc.result?.warnings.find((w) => w.code === "IMAGE_ONLY_PAGES") : undefined;
   dirtyBar.innerHTML =
-    doc && isDirty(doc)
+    (doc && isDirty(doc)
       ? `<div class="dirty">
           ${icon("i-alert", "icon icon-sm")}
           <span>추출 옵션이 변경되었습니다. 결과에 반영하려면 재변환하세요.</span>
           <button class="btn-mini" id="dirtyRun">재변환</button>
         </div>`
-      : "";
+      : "") +
+    (bare
+      ? `<div class="notice">
+          ${icon("i-image", "icon icon-sm")}
+          <span>${esc(bare.message)}</span>
+          <button class="btn-mini" data-retry="retry-with-ocr">OCR 로 다시 변환</button>
+        </div>`
+      : "");
 
   if (!doc) {
     crumbs.innerHTML = "";
@@ -142,6 +185,11 @@ export function renderViewer(
   crumbs.innerHTML = `<b class="cur" title="${esc(doc.name)}">${esc(doc.name)}</b><span class="seg">${KIND_LABEL[doc.kind]}</span>`;
   const warnings = doc.result?.warnings.length ?? 0;
   warnCount.textContent = warnings > 0 ? String(warnings) : "";
+
+  if (needsOcr(doc)) {
+    panel.innerHTML = needsOcrPanel();
+    return;
+  }
 
   if (doc.status === "failed") {
     panel.innerHTML = failPanel(doc);

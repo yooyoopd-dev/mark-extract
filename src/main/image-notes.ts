@@ -167,3 +167,39 @@ function summary(count: number, pages: readonly number[], unit: string): Warning
     },
   ];
 }
+
+/**
+ * 그림만 있고 글자가 없는 쪽 번호 (build.37).
+ *
+ * 엔진 출력(페이지 구분자가 아직 남아 있는 것)을 받는다. 스캔한 쪽은 쪽 전체가 그림
+ * 한 장이라 이 모양이 된다. 문서 전체가 이러면 NEEDS_OCR 이고, 일부 쪽만 이러면 변환은
+ * 성공으로 두고 그 쪽 번호를 알려 OCR 을 권한다. 그림 한 장짜리 도표 쪽도 같은 모양
+ * 이라 "스캔한 쪽이라면" 이라고만 말한다 — 둘을 가를 근거가 출력에 없다.
+ */
+export function imageOnlyPages(engineMarkdown: string): number[] {
+  const pages: number[] = [];
+  let page: number | null = null;
+  let hasImage = false;
+  let hasText = false;
+
+  const close = (): void => {
+    if (page !== null && hasImage && !hasText) pages.push(page);
+  };
+
+  for (const line of engineMarkdown.split("\n")) {
+    const mark = PAGE_LINE.exec(line);
+    if (mark?.[1]) {
+      close();
+      page = Number(mark[1]);
+      hasImage = false;
+      hasText = false;
+      continue;
+    }
+    IMAGE.lastIndex = 0;
+    if (IMAGE.test(line)) hasImage = true;
+    if (/[\p{L}\p{N}]/u.test(line.replace(IMAGE, "").replace(/<!--[\s\S]*?-->/g, ""))) hasText = true;
+  }
+  close();
+  return pages;
+}
+

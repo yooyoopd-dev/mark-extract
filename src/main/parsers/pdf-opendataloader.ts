@@ -16,8 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
 import { cleanHtmlInMarkdown } from "../html-in-markdown";
-import { testHybrid } from "../hybrid-http";
-import { hasText, noteImages, PAGE_SEPARATOR } from "../image-notes";
+import { effectiveUrl, ensureOcrServer } from "../ocr-server";
+import { hasText, imageOnlyPages, noteImages, PAGE_SEPARATOR } from "../image-notes";
 import { joinWrappedLines, normalizeMarkdown } from "../normalize";
 import type { DocOptions, LogEntry, ParseRequest, ParseResult, Warning } from "../../shared/parse";
 
@@ -303,34 +303,36 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
   ];
 
   try {
-    const hybridUrl = request.hybridUrl ?? "";
-    const preflight: Warning[] = [];
-    let ocr = request.options?.ocr === true && hybridUrl !== "";
+    const ocr = request.options?.ocr === true;
+    const hybridUrl = effectiveUrl(request.hybridUrl ?? "");
 
-    // 서버가 답하지 않으면 OCR 없이 변환하고 그 사실을 경고로 남긴다 (build.34).
-    //
-    // 인스펙터는 서버가 죽어 있으면 OCR 스위치를 **꺼진 채** 그린다. 그런데 설정의
-    // "새 PDF 에 OCR 켜 두기" 가 문서에 ocr: true 를 심어 두면, 여기서는 그 값과
-    // (기본값이 있는) 주소만 보고 --hybrid 를 붙여 죽은 서버를 불렀다 — 화면은 OCR
-    // 꺼짐, 실제는 OCR 실패. 서버를 띄우기 전까지 모든 PDF 가 실패하는 모양이다.
-    //
-    // 결정 6 의 --hybrid-fallback 금지와는 다른 일이다. 그것은 변환 **도중** 조용히
-    // 되돌리는 것을 막는다. 여기서는 시작 전에 판단하고, 경고 탭과 로그에 적는다.
+    // OCR 을 켰으면 서버를 보장한다 (build.37). 꺼져 있으면 앱이 띄우고 준비될 때까지
+    // 기다린다 — 첫 실행은 모델을 내려받느라 몇 분 걸린다. 띄울 수 없으면 OCR 없이
+    // 조용히 변환하지 않고 사유와 함께 실패한다. 사용자가 OCR 을 **직접** 켠 것이기
+    // 때문이다 (build.34 의 "건너뛰고 변환" 은 OCR 이 기본값으로 심기던 시절의 것).
     if (ocr) {
-      const alive = await testHybrid(hybridUrl);
-      if (!alive.ok) {
-        ocr = false;
-        log.push({ label: "OCR", value: `서버 응답 없음 — 건너뜀 (${alive.detail})` });
-        preflight.push({
-          code: "OCR_SKIPPED",
-          message:
-            `OCR 서버(${hybridUrl})가 응답하지 않아 OCR 없이 변환했습니다. ` +
-            "설정 → OCR 서버에서 [실행] 으로 서버를 띄운 뒤 다시 변환하세요.",
-        });
+      const server = await ensureOcrServer(hybridUrl, request.signal);
+      if (request.signal?.aborted) throw new Error("변환이 취소되었습니다.");
+      if (server.phase !== "on") {
+        return {
+          ok: false,
+          markdown: "",
+          warnings: [],
+          log: [
+            ...log,
+            { label: "OCR", value: `${hybridUrl} — ${server.detail}` },
+            ...(server.tail ? [{ label: "OCR 서버 로그", value: server.tail }] : []),
+          ],
+          meta: { engine: ENGINE, elapsedMs: Date.now() - started },
+          error: {
+            code: "OCR_SERVER_UNAVAILABLE",
+            message: server.detail,
+            actions: ["open-ocr-settings", "retry-plain"],
+          },
+        };
       }
     }
-    const options: DocOptions = { ...request.options, ocr };
-    const args = buildArgs(request.filePath, dir, options, hybridUrl);
+    const args = buildArgs(request.filePath, dir, request.options, hybridUrl);
 
     // 제한 시간을 문구에 박지 않고 실제 쓰는 값을 적는다. 전에는 "30분" 이라고
     // 적어 두었는데 실제로는 문서에 실린 값이 쓰여, 10분에 끊긴 이유를 로그만
@@ -340,7 +342,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     if (ocr) {
       log.push({
         label: "OCR",
-        value: `hybrid 서버 ${request.hybridUrl} · 제한 시간 ${Math.round(timeoutMs / 60_000)}분`,
+        value: `hybrid 서버 ${hybridUrl} · 제한 시간 ${Math.round(timeoutMs / 60_000)}분`,
       });
     }
     // 암호는 로그에 남기지 않는다.
@@ -361,7 +363,7 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
       return {
         ok: false,
         markdown: "",
-        warnings: [...preflight, ...logged.warnings],
+        warnings: logged.warnings,
         // 종료 코드를 따로 적는다. 문구에 섞어 두면 사유가 있을 때 사라졌다.
         log: [...log, { label: "종료 코드", value: String(code) }, { label: "엔진 오류", value: reason }],
         meta: { engine: ENGINE, elapsedMs },
@@ -400,28 +402,44 @@ export async function parsePdf(request: ParseRequest): Promise<ParseResult> {
     const markdown = normalizeMarkdown(joinWrappedLines(noted.markdown));
 
     // 그림 표시만 남은 것도 빈 결과다 — 스캔 PDF 가 이 모양으로 "성공" 했다 (hasText).
+    //
+    // OCR 을 거치지 않았으면 이것은 프로그램의 실패가 아니라 **이미지로 된 PDF** 다
+    // (build.37 요청 — 빨간 실패처럼 보였다). NEEDS_OCR 로 따로 내고, 화면은 실패 상자
+    // 대신 [OCR 로 변환] 하나를 보인다.
     if (!hasText(markdown)) {
       return {
         ok: false,
         markdown: "",
-        warnings: preflight,
+        warnings: [],
         log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
         meta: { engine: ENGINE, elapsedMs },
-        error: {
-          code: "EMPTY_OUTPUT",
-          message: ocr
-            ? "OCR 을 거쳤지만 추출된 글자가 없습니다."
-            : "추출된 글자가 없습니다. 글자 레이어가 없는 스캔(이미지) PDF 로 보입니다. " +
-              "OCR 서버를 띄우고 OCR 을 켜서 다시 변환하세요.",
-          actions: ocr ? ["retry-plain"] : ["retry-with-ocr", "retry-plain"],
-        },
+        error: ocr
+          ? { code: "EMPTY_OUTPUT", message: "OCR 을 거쳤지만 읽어 낸 글자가 없습니다.", actions: ["retry-plain"] }
+          : {
+              code: "NEEDS_OCR",
+              message: "이미지로 된 PDF 입니다. 글자를 읽으려면 OCR 이 필요합니다.",
+              actions: ["retry-with-ocr"],
+            },
       };
     }
+
+    // 일부 쪽만 그림뿐인 PDF. 변환은 성공으로 두고 그 쪽을 알린다 — 화면이 이 경고를
+    // 보고 결과 위에 [OCR 로 다시 변환] 띠를 띄운다.
+    const bare = ocr ? [] : imageOnlyPages(cleaned.markdown);
+    const pageWarnings: Warning[] =
+      bare.length === 0
+        ? []
+        : [
+            {
+              code: "IMAGE_ONLY_PAGES",
+              message: `${bare.join("·")}쪽에는 글자 없이 그림만 있습니다. 스캔한 쪽이라면 OCR 로 글자를 읽을 수 있습니다.`,
+            },
+          ];
 
     return {
       ok: true,
       markdown,
-      warnings: [...preflight, ...logged.warnings, ...cleaned.warnings, ...noted.warnings],
+      warnings: [...pageWarnings, ...logged.warnings, ...cleaned.warnings, ...noted.warnings],
       log: [...log, { label: "소요", value: `${(elapsedMs / 1000).toFixed(1)}초` }],
       meta: { engine: ENGINE, elapsedMs },
     };

@@ -5,7 +5,7 @@
 그것을 `> [그림 N] …` 줄로 바꾸므로 결과가 **비어 있지 않은 채 글자가 0개**였다 —
 그래서 성공으로 나왔다. 그 경로를 재현하는 자료다.
 
-    pip install pillow
+    pip install pillow pypdf
     python3 test/fixtures/make-scan-sample.py
 
 그림 안에 글자 모양을 그려 두지만 PDF 에는 텍스트 객체가 없다. 그것이 요점이다.
@@ -29,3 +29,14 @@ for n in (1, 2):
 
 pages[0].save(HERE / "sample-scan.pdf", save_all=True, append_images=pages[1:], resolution=150)
 print("sample-scan.pdf")
+
+# build.37: 일부 쪽만 스캔인 PDF. 1쪽은 sample-ko.pdf 의 글자 쪽, 2쪽은 위의 스캔 쪽이다.
+# 변환은 성공이어야 하고, 2쪽이 "그림만 있는 쪽" 으로 잡혀야 한다.
+from pypdf import PdfReader, PdfWriter
+
+writer = PdfWriter()
+writer.add_page(PdfReader(HERE / "sample-ko.pdf").pages[0])
+writer.add_page(PdfReader(HERE / "sample-scan.pdf").pages[0])
+with open(HERE / "sample-mixed.pdf", "wb") as out:
+    writer.write(out)
+print("sample-mixed.pdf")
