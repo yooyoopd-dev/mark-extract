@@ -11,7 +11,15 @@ name: build
 on:
   push:
     branches: ["claude/**"]
+  # 수동 실행. official 을 켜면 프리릴리스(build.N) 대신 정식 릴리스 v<버전> 을 'Latest' 로
+  # 게시한다 (main 병합 뒤 배포용). 같은 버전 태그가 이미 있으면 게시 단계에서 실패한다 —
+  # 정식 릴리스를 덮어쓰지 않는다. 다시 내려면 package.json 의 version 을 올린다.
   workflow_dispatch:
+    inputs:
+      official:
+        description: "정식 릴리스로 게시 (v<package.json version>, Latest)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -321,12 +329,19 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          tag="v${version}-build.${{ github.run_number }}"
+          if [ "${{ inputs.official }}" = "true" ]; then
+            tag="v${version}"
+            echo "title=Mark Extract ${version}" >> "$GITHUB_OUTPUT"
+            lead="**정식 배포**입니다. 커밋 \`${GITHUB_SHA::7}\` (빌드 ${{ github.run_number }}) 에서 나왔습니다."
+          else
+            tag="v${version}-build.${{ github.run_number }}"
+            echo "title=Mark Extract ${version} (빌드 ${{ github.run_number }})" >> "$GITHUB_OUTPUT"
+            lead="정식 배포가 아닌 **동작 확인용 빌드**입니다. 커밋 \`${GITHUB_SHA::7}\` 에서 나왔습니다."
+          fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "title=Mark Extract ${version} (빌드 ${{ github.run_number }})" >> "$GITHUB_OUTPUT"
 
           {
-            echo "정식 배포가 아닌 **동작 확인용 빌드**입니다. 커밋 \`${GITHUB_SHA::7}\` 에서 나왔습니다."
+            echo "$lead"
             echo
             echo "## 받는 법"
             echo
@@ -356,18 +371,19 @@ jobs:
             echo
             echo "## 확인된 것"
             echo
-            echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 5종, 변환 큐·감시 폴더·내보내기"
-            echo "- Windows: 동봉 JRE 로 한글 문서 5종 변환, 패키징 배치, 패키징된 앱 자체 점검"
-            echo "- Windows: **배포하는 zip 을 실제로 풀어** PATH 에서 JDK 를 뺀 채 돌려 동봉 JRE 사용과 5종 변환 확인"
+            echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 7종(PDF·DOCX·XLSX·XLS·PPTX·HTML·EML), OCR 서버 관리, 변환 큐·감시 폴더·내보내기"
+            echo "- Windows: 동봉 JRE 로 한글 시험 자료 7종(PDF·DOCX·XLSX·XLS·PPTX·EML 2) 변환, 패키징 배치, 패키징된 앱 자체 점검"
+            echo "- Windows: **배포하는 zip 을 실제로 풀어** PATH 에서 JDK 를 뺀 채 돌려 동봉 JRE 사용과 7종 변환 확인"
             echo
             echo "아직 확인되지 않은 것: 실제 OCR 인식 결과, gemini·codex 의 성공 응답 본문,"
             echo "Ollama 실동작. 개발 환경에서 모델·인증에 닿을 수 없어 남겨 두었습니다."
             echo
             echo "## 문제가 있을 때 — 자체 점검"
             echo
-            echo "**설정 → 일반 → 자체 점검 실행** 을 누르거나 \`Ctrl+K\` 에서 \"자체 점검\" 을"
-            echo "고르면, 동봉 JRE·문서 5종 변환·LLM CLI·OCR 서버·설정 경로를 확인한 결과가"
-            echo "화면에 나옵니다. **결과 복사** 로 그대로 보내 주시면 원인을 훨씬 빨리 찾습니다."
+            echo "**설정 → 일반 → 자체 점검 실행** 을 누르면 동봉 JRE·시험 자료 변환·LLM CLI·"
+            echo "OCR 서버·설정 경로를 확인한 결과가 화면에 나옵니다. **결과 복사** 로 그대로"
+            echo "보내 주시면 원인을 훨씬 빨리 찾습니다. 변환이 실패한 문서는 실패 화면의"
+            echo "**로그 복사** 로 그 문서의 로그를 보낼 수 있습니다."
             echo
             echo "명령 프롬프트(cmd)를 쓰신다면 아래도 같은 일을 하고 파일로도 남깁니다."
             echo "PowerShell 에서는 \`%USERPROFILE%\` 가 펼쳐지지 않으니 \`\$env:USERPROFILE\` 을 쓰세요."
@@ -388,9 +404,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.official }}" = "true" ]; then kind="--latest"; else kind="--prerelease"; fi
           gh release create "${{ steps.notes.outputs.tag }}" \
             --target "$GITHUB_SHA" \
             --title "${{ steps.notes.outputs.title }}" \
             --notes-file release-notes.md \
-            --prerelease \
+            "$kind" \
             release/*.zip
