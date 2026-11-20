@@ -1,0 +1,2513 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarkExtract — 문서 Markdown 추출기</title>
+<style>
+/* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio.
+   Put this @layer first; product CSS outside the layer always wins. */
+@layer od-layout {
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  /* containers */
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  /* stacked information: each piece is its own line — never sibling inline spans */
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  /* media keeps its intrinsic ratio by default; never a distorted or cropped
+     cover by accident. height:auto lets the ratio win over an <img height="…">
+     attribute. Cropping to a uniform box is an explicit opt-in: set --od-ratio
+     AND add .od-media-cover together (per the core rule, only where a crop is
+     deliberate — tile thumbs, decorative fills — never on full-frame content). */
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+
+  /* data text only — authored copy is rewritten to its budget instead */
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }   /* block-level reservation for a shared baseline */
+  .od-nowrap  { white-space: nowrap; }           /* 数字+单位 · 价格+起 · 日期+星期 */
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; } /* CJK labels break at spaces / <wbr> first */
+
+  /* screen skeleton (optional): bars take their own space, the middle scrolls — no padding guessed for chrome */
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+  /* horizontal rail: the next item peeks at the edge; trailing room survives overflow */
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+/* /OD-LAYOUT-PRIMITIVES v1 */
+
+/* ============================================================
+   Design tokens — tolaria (refactoringhq/tolaria) 파생
+   ============================================================ */
+:root, [data-theme="light"] {
+  color-scheme: light;
+
+  --surface-app:      #FFFFFF;
+  --surface-sidebar:  #F7F6F3;
+  --surface-panel:    #FCFBFA;
+  --surface-card:     #FFFFFF;
+  --surface-popover:  #FFFFFF;
+  --surface-input:    #FFFFFF;
+  --surface-button:   #EBEBEA;
+  --surface-dialog:   #FFFFFF;
+  --surface-code:     #F7F6F3;
+  --surface-overlay:  rgba(0,0,0,.30);
+
+  --text-primary:   #37352F;
+  --text-secondary: #6B6A66;   /* 레퍼런스 #787774 대비 보정 — 웜 그라운드에서 5.1:1 확보 */
+  --text-muted:     #8C8A84;
+  --text-inverse:   #FFFFFF;
+
+  --border-default: #E9E9E7;
+  --border-subtle:  #EFEEEB;
+  --border-strong:  #D9D9D6;
+  --border-input:   #DCDBD7;
+
+  --state-hover:         #EBEBEA;
+  --state-hover-subtle:  #F0F0EF;
+  --state-selected:      #E8F4FE;
+  --state-selected-deep: #D8ECFE;
+  --state-disabled:      #F0F0EF;
+
+  --accent:        #155DFF;
+  --accent-hover:  #0D4AD6;
+  --accent-bg:     #EEF3FF;
+  --accent-ring:   #155DFF;
+
+  --ok-text:   #1E7A47;  --ok-bg:   #E7F4EC;
+  --warn-text: #A85A08;  --warn-bg: #FCF0E2;
+  --err-text:  #C5302F;  --err-bg:  #FCECEB;
+  --run-text:  #1450DA;  --run-bg:  #E8F1FE;
+  --idle-text: #6B6A66;  --idle-bg: #F0F0EF;
+
+  --caption-close:      #C42B1C;
+  --shadow-dialog:      rgba(15,15,15,.16);
+  --shadow-popover:     rgba(15,15,15,.12);
+
+  --tk-key: #C9383E; --tk-val: #2A7E4F; --tk-head: #0969DA; --tk-mark: #8C8A84; --tk-code: #C9383E;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-app:      #1F1E1B;
+  --surface-sidebar:  #191814;
+  --surface-panel:    #1B1A17;
+  --surface-card:     #23221F;
+  --surface-popover:  #292823;
+  --surface-input:    #1A1916;
+  --surface-button:   #34322D;
+  --surface-dialog:   #272622;
+  --surface-code:     #191814;
+  --surface-overlay:  rgba(8,8,7,.58);
+
+  --text-primary:   #E6E1D8;
+  --text-secondary: #B8B1A6;
+  --text-muted:     #8F887D;
+  --text-inverse:   #151411;
+
+  --border-default: #34322D;
+  --border-subtle:  #2A2925;
+  --border-strong:  #46433B;
+  --border-input:   #3A3832;
+
+  --state-hover:         #2D2B27;
+  --state-hover-subtle:  #262520;
+  --state-selected:      #1D3354;
+  --state-selected-deep: #244271;
+  --state-disabled:      #262520;
+
+  --accent:        #78A4FF;
+  --accent-hover:  #9CBCFF;
+  --accent-bg:     #1C2A44;
+  --accent-ring:   #78A4FF;
+
+  --ok-text:   #5FD39A;  --ok-bg:   #1B3227;
+  --warn-text: #E9A35A;  --warn-bg: #362719;
+  --err-text:  #FF8F88;  --err-bg:  #3A211F;
+  --run-text:  #9CBCFF;  --run-bg:  #1C2A44;
+  --idle-text: #B8B1A6;  --idle-bg: #2A2925;
+
+  --caption-close:      #C42B1C;
+  --shadow-dialog:      rgba(0,0,0,.55);
+  --shadow-popover:     rgba(0,0,0,.45);
+
+  --tk-key: #E8888C; --tk-val: #86D6A6; --tk-head: #8AB4F8; --tk-mark: #8F887D; --tk-code: #E8888C;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+               "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--surface-app);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--state-selected-deep); }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon-sm { width: 14px; height: 14px; }
+
+/* scrollbars — 데스크톱 밀도에 맞춘 얇은 형태 */
+.od-scroll, .scroll { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.od-scroll::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.od-scroll::-webkit-scrollbar-thumb, .scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+}
+
+/* ============================================================
+   App shell — 타이틀바 / 4분할 워크스페이스 / 상태바
+   ============================================================ */
+.app {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr) 28px;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface-app);
+}
+
+/* --- Windows 캡션바 --- */
+.titlebar {
+  display: flex; align-items: stretch;
+  background: var(--surface-sidebar);
+  border-bottom: 1px solid var(--border-default);
+  user-select: none;
+}
+.tb-brand { display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; }
+.tb-mark {
+  width: 18px; height: 18px; border-radius: 5px; flex: none;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; letter-spacing: -.3px;
+}
+.tb-name { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+.tb-menu { display: flex; align-items: stretch; }
+.tb-menu button {
+  padding: 0 10px; font-size: 13px; color: var(--text-secondary); border-radius: 4px; margin: 5px 1px;
+}
+.tb-menu button:hover { background: var(--state-hover); color: var(--text-primary); }
+.tb-drag { flex: 1 1 auto; min-width: 12px; }
+.tb-right { display: flex; align-items: stretch; }
+.tb-tool {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; margin: 5px 2px;
+  border-radius: 5px; font-size: 12px; color: var(--text-secondary);
+}
+.tb-tool:hover { background: var(--state-hover); color: var(--text-primary); }
+.caption { display: flex; align-items: stretch; }
+.caption button { width: 46px; display: grid; place-items: center; color: var(--text-primary); }
+.caption button:hover { background: var(--state-hover); }
+.caption button.close:hover { background: var(--caption-close); color: #fff; }
+.caption svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1.1; }
+.nav-toggle { display: none; }
+
+/* --- 워크스페이스 그리드 --- */
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: 248px 336px minmax(0, 1fr) 300px;
+  min-height: 0;
+  background: var(--surface-app);
+}
+.workspace > * { min-width: 0; min-height: 0; }
+
+/* ============================================================
+   좌측 사이드바
+   ============================================================ */
+.sidebar {
+  display: grid; grid-template-rows: minmax(0,1fr) auto;
+  background: var(--surface-sidebar);
+  border-right: 1px solid var(--border-default);
+  transition: transform .22s cubic-bezier(.2,.7,.3,1);
+}
+.nav { padding: 8px 8px 16px; }
+.nav-group + .nav-group { margin-top: 14px; }
+.nav-head {
+  display: flex; align-items: center; gap: 4px; width: 100%;
+  padding: 4px 8px; margin-bottom: 2px; border-radius: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.nav-head:hover { background: var(--state-hover); color: var(--text-secondary); }
+.nav-head .chev { transition: transform .15s ease; }
+.nav-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.nav-head .count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.nav-body { display: grid; gap: 1px; }
+.nav-head[aria-expanded="false"] + .nav-body { display: none; }
+
+.nav-item {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 30px; padding: 4px 8px 4px 10px; border-radius: 5px;
+  font-size: 14px; color: var(--text-primary); text-align: left;
+}
+.nav-item:hover { background: var(--state-hover); }
+.nav-item .label { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-item .count {
+  flex: none; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.nav-item[aria-current="true"] { background: var(--state-selected); color: var(--accent); font-weight: 500; }
+.nav-item[aria-current="true"]::before {
+  content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.nav-item[aria-current="true"] .count { color: var(--accent); }
+.nav-item .pill {
+  flex: none; min-width: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.fmt {
+  flex: none; width: 26px; height: 16px; border-radius: 3px;
+  display: grid; place-items: center; font-size: 8px; font-weight: 700; letter-spacing: .02em;
+  color: #fff;
+}
+.fmt.pdf  { background: #C5302F; }
+.fmt.docx { background: #2B5797; }
+.fmt.xlsx { background: #1E7A47; }
+.fmt.pptx { background: #A85A08; }
+.fmt.lg { width: 32px; height: 20px; font-size: 9px; border-radius: 4px; }
+
+.sidebar-foot { border-top: 1px solid var(--border-default); padding: 8px; }
+.watch-add {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px;
+  padding: 4px 10px; border-radius: 5px; font-size: 13px; color: var(--text-secondary);
+}
+.watch-add:hover { background: var(--state-hover); color: var(--text-primary); }
+
+/* ============================================================
+   중앙 문서 리스트
+   ============================================================ */
+.listpane {
+  display: grid; grid-template-rows: auto auto minmax(0,1fr);
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border-default);
+}
+.list-head {
+  display: flex; align-items: center; gap: 6px;
+  height: 44px; padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.list-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; margin-right: auto; }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 5px; color: var(--text-secondary);
+}
+.icon-btn:hover { background: var(--state-hover); color: var(--text-primary); }
+.icon-btn[aria-pressed="true"], .icon-btn.on { background: var(--state-selected); color: var(--accent); }
+.icon-btn:disabled { color: var(--text-muted); cursor: not-allowed; }
+.icon-btn:disabled:hover { background: none; }
+
+.list-filter { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); display: grid; gap: 8px; }
+.search {
+  display: flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 8px; border-radius: 6px;
+  background: var(--surface-input); border: 1px solid var(--border-input); color: var(--text-secondary);
+}
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.search input { flex: 1 1 0; min-width: 0; border: 0; background: none; outline: none; font-size: 13px; color: var(--text-primary); }
+.search input::placeholder { color: var(--text-muted); }
+.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; height: 24px; padding: 0 10px; border-radius: 12px;
+  border: 1px solid var(--border-default); background: var(--surface-card);
+  font-size: 12px; color: var(--text-secondary); white-space: nowrap;
+}
+.chip:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.chip[aria-pressed="true"] { background: var(--state-selected); border-color: transparent; color: var(--accent); font-weight: 500; }
+
+.doclist { padding: 4px 0 16px; }
+.doc {
+  position: relative; display: block; width: 100%; text-align: left;
+  padding: 11px 14px 11px 16px; border-bottom: 1px solid var(--border-subtle);
+  background: none; color: inherit;
+}
+.doc:hover { background: var(--state-hover-subtle); }
+.doc[aria-selected="true"] { background: var(--state-selected); }
+.doc[aria-selected="true"]::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent);
+}
+.doc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.doc-name {
+  flex: 1 1 0; min-width: 0; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.doc-star { flex: none; color: var(--warn-text); }
+.doc-snip { font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); margin-bottom: 8px; }
+.doc-foot { display: flex; align-items: center; gap: 8px; }
+.doc-time { margin-left: auto; flex: none; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+
+.status {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  height: 20px; padding: 0 7px; border-radius: 4px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.status .icon { width: 12px; height: 12px; stroke-width: 1.8; }
+.status.done   { background: var(--ok-bg);   color: var(--ok-text); }
+.status.run    { background: var(--run-bg);  color: var(--run-text); }
+.status.queued { background: var(--idle-bg); color: var(--idle-text); }
+.status.failed { background: var(--err-bg);  color: var(--err-text); }
+.status.run .icon { animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.bar { height: 3px; border-radius: 2px; background: var(--border-default); overflow: hidden; margin-top: 8px; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .35s ease-out; }
+
+.skel { padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+.skel > span { display: block; height: 10px; border-radius: 4px; background: var(--state-hover); animation: pulse 1.4s ease-in-out infinite; }
+.skel > span + span { margin-top: 8px; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+.empty { display: grid; justify-items: center; gap: 8px; padding: 56px 28px; text-align: center; }
+.empty .ring {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--state-hover-subtle); color: var(--text-secondary);
+}
+.empty h3 { margin: 4px 0 0; font-size: 14px; font-weight: 600; }
+.empty p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-secondary); max-width: 34ch; }
+
+/* ============================================================
+   메인 뷰어
+   ============================================================ */
+.viewer { display: grid; grid-template-rows: auto auto minmax(0,1fr); background: var(--surface-app); }
+.viewer-bar {
+  display: flex; align-items: center; gap: 4px;
+  height: 44px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border-subtle);
+}
+.crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; margin-right: auto; }
+.crumbs .seg { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.crumbs .sep { color: var(--text-muted); }
+.crumbs .cur {
+  font-size: 13px; color: var(--text-primary); font-weight: 500;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
+}
+.vbar-div { width: 1px; height: 18px; background: var(--border-default); margin: 0 4px; flex: none; }
+.back-to-list, .inspector-open { display: none; }
+
+.tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border-default); }
+.tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 12px; border-radius: 5px 5px 0 0;
+  font-size: 13px; color: var(--text-secondary);
+}
+.tab:hover { background: var(--state-hover-subtle); color: var(--text-primary); }
+.tab[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+.tab[aria-selected="true"]::after {
+  content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px;
+  background: var(--accent); border-radius: 2px 2px 0 0;
+}
+.tab .n { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] .n { color: var(--accent); }
+
+.dirty {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; background: var(--warn-bg); color: var(--warn-text);
+  font-size: 12.5px; border-bottom: 1px solid var(--border-subtle);
+}
+.dirty .btn-mini {
+  margin-left: auto; height: 24px; padding: 0 10px; border-radius: 5px;
+  background: var(--warn-text); color: #fff; font-size: 12px; font-weight: 600;
+}
+
+/* 렌더링된 Markdown — 리딩 영역 16px/1.6 */
+.reading { padding: 32px 40px 80px; }
+.reading-inner { max-width: 72ch; margin: 0 auto; font-size: 16px; line-height: 1.65; }
+.reading-inner h1 { font-size: 28px; line-height: 1.3; font-weight: 700; letter-spacing: -.02em; margin: 0 0 16px; }
+.reading-inner h2 { font-size: 21px; line-height: 1.35; font-weight: 700; letter-spacing: -.015em; margin: 32px 0 10px; }
+.reading-inner h3 { font-size: 17px; font-weight: 600; margin: 24px 0 8px; }
+.reading-inner h4 { font-size: 16px; font-weight: 600; color: var(--text-secondary); margin: 20px 0 6px; }
+.reading-inner p { margin: 0 0 14px; }
+.reading-inner ul, .reading-inner ol { margin: 0 0 14px; padding-left: 22px; }
+.reading-inner li { margin-bottom: 5px; }
+.reading-inner li::marker { color: var(--accent); }
+.reading-inner a { color: var(--accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.reading-inner a:hover { border-bottom-color: var(--accent); }
+.reading-inner strong { font-weight: 650; }
+.reading-inner code {
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: .87em; padding: 1px 5px; border-radius: 4px;
+  background: var(--surface-code); color: var(--tk-code);
+}
+.reading-inner pre {
+  margin: 0 0 16px; padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+  background: var(--surface-code); border: 1px solid var(--border-subtle);
+}
+.reading-inner pre code { background: none; padding: 0; color: var(--text-primary); font-size: 13px; line-height: 1.6; }
+.reading-inner blockquote {
+  margin: 0 0 16px; padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--border-strong); color: var(--text-secondary);
+}
+.reading-inner hr { border: 0; border-top: 1px solid var(--border-default); margin: 28px 0; }
+.reading-inner table { width: 100%; border-collapse: collapse; margin: 0 0 18px; font-size: 14px; display: block; overflow-x: auto; }
+.reading-inner th, .reading-inner td { border: 1px solid var(--border-default); padding: 8px 12px; text-align: left; vertical-align: top; }
+.reading-inner th { background: var(--surface-sidebar); font-weight: 600; white-space: nowrap; }
+.reading-inner tbody tr:nth-child(2n) td { background: var(--surface-panel); }
+.fm {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px;
+  padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle);
+}
+.fm .kv {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  height: 22px; padding: 0 8px; border-radius: 4px;
+  background: var(--surface-sidebar); border: 1px solid var(--border-subtle); font-size: 11.5px;
+}
+.fm .kv b { font-weight: 600; color: var(--tk-key); }
+.fm .kv span { color: var(--text-secondary); }
+.imgref {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0 0 14px;
+  padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--border-strong);
+  background: var(--surface-panel); color: var(--text-secondary); font-size: 12.5px;
+}
+
+/* 원본 Markdown 소스 */
+.source { padding: 20px 24px 80px; }
+.source pre {
+  margin: 0; font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--text-primary); tab-size: 2;
+}
+.tk-h { color: var(--tk-head); font-weight: 600; }
+.tk-b { color: var(--text-primary); font-weight: 700; }
+.tk-c { color: var(--tk-code); }
+.tk-m { color: var(--tk-mark); }
+.tk-t { color: var(--tk-val); }
+.tk-q { color: var(--text-secondary); font-style: italic; }
+.tk-f { color: var(--tk-key); }
+
+/* 추출 필드 */
+.fields { padding: 20px 24px 80px; max-width: 900px; }
+.fields h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.fields .hint { margin: 0 0 16px; font-size: 12.5px; color: var(--text-secondary); }
+.ftable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ftable tr { border-bottom: 1px solid var(--border-subtle); }
+.ftable tr:first-child { border-top: 1px solid var(--border-subtle); }
+.ftable th {
+  width: 190px; padding: 10px 16px 10px 0; text-align: left; vertical-align: top;
+  font-weight: 500; color: var(--text-secondary); white-space: nowrap;
+}
+.ftable td { padding: 10px 0; vertical-align: top; overflow-wrap: anywhere; }
+.conf { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.conf i { display: block; width: 28px; height: 4px; border-radius: 2px; background: var(--border-default); overflow: hidden; }
+.conf i b { display: block; height: 100%; background: var(--ok-text); }
+
+/* 실패 상태 */
+.failbox { margin: 32px auto; max-width: 560px; padding: 20px; border-radius: 8px; background: var(--err-bg); border: 1px solid color-mix(in srgb, var(--err-text) 30%, transparent); }
+.failbox h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--err-text); display: flex; align-items: center; gap: 8px; }
+.failbox p { margin: 0 0 6px; font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+.failbox dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0 16px; font-size: 12.5px; }
+.failbox dt { color: var(--text-secondary); }
+.failbox dd { margin: 0; }
+
+/* ============================================================
+   우측 인스펙터
+   ============================================================ */
+.inspector {
+  display: grid; grid-template-rows: auto minmax(0,1fr);
+  background: var(--surface-sidebar); border-left: 1px solid var(--border-default);
+  transition: transform .22s cubic-bezier(.2,.7,.3,1);
+}
+.insp-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border-default); }
+.insp-head h2 { margin: 0; font-size: 13px; font-weight: 600; margin-right: auto; }
+.insp-body { padding: 4px 16px 28px; }
+.insp-sec + .insp-sec { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-default); }
+.insp-sec > h3 {
+  margin: 14px 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.meta { display: grid; gap: 7px; font-size: 12.5px; }
+.meta > div { display: flex; align-items: baseline; gap: 10px; }
+.meta dt, .meta .k { flex: none; width: 74px; color: var(--text-secondary); }
+.meta dd, .meta .v { margin: 0; flex: 1 1 0; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.opt { display: grid; gap: 4px; margin-bottom: 14px; }
+.opt > label, .opt > .lab { font-size: 12.5px; font-weight: 500; }
+.opt .desc { font-size: 11.5px; line-height: 1.45; color: var(--text-secondary); }
+.opt select, .opt input[type="text"] {
+  width: 100%; height: 30px; padding: 0 8px; border-radius: 6px;
+  background: var(--surface-input); border: 1px solid var(--border-input); color: var(--text-primary); font-size: 13px;
+}
+.opt select:focus, .opt input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.switchrow { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.switchrow .txt { flex: 1 1 0; min-width: 0; }
+.switchrow .txt b { display: block; font-size: 12.5px; font-weight: 500; }
+.switchrow .txt span { display: block; font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+.sw {
+  position: relative; flex: none; width: 34px; height: 20px; border-radius: 10px;
+  background: var(--border-strong); transition: background .15s ease;
+}
+.sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; transition: transform .15s ease;
+}
+.sw[aria-checked="true"] { background: var(--accent); }
+.sw[aria-checked="true"]::after { transform: translateX(14px); }
+.rangerow { display: grid; gap: 6px; margin-bottom: 14px; }
+.rangerow .top { display: flex; align-items: baseline; gap: 8px; }
+.rangerow .top b { font-size: 12.5px; font-weight: 500; }
+.rangerow .top output { margin-left: auto; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 12px; border-radius: 6px;
+  border: 1px solid var(--border-input); background: var(--surface-card);
+  font-size: 13px; font-weight: 500; color: var(--text-primary);
+}
+.btn:hover { background: var(--state-hover); }
+.btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.danger { color: var(--err-text); border-color: color-mix(in srgb, var(--err-text) 35%, transparent); }
+.btn.danger:hover { background: var(--err-bg); }
+.btn.block { width: 100%; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--surface-card); }
+
+/* ============================================================
+   상태바
+   ============================================================ */
+.statusbar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 4px 0 8px; background: var(--surface-sidebar);
+  border-top: 1px solid var(--border-default); font-size: 11.5px; color: var(--text-secondary);
+}
+.sb {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px;
+  border-radius: 4px; color: inherit; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+button.sb:hover { background: var(--state-hover); color: var(--text-primary); }
+.sb .icon { width: 12px; height: 12px; }
+.sb .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--ok-text); }
+.sb .dot.run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.sb-right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.sb-hide { display: inline-flex; }
+
+/* ============================================================
+   오버레이 — 커맨드 팔레트 / 다이얼로그 / 드롭 / 토스트
+   ============================================================ */
+.scrim {
+  position: absolute; inset: 0; background: var(--surface-overlay); z-index: 25;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.app[data-sidebar="open"] .scrim, .app[data-inspector="open"] .scrim { opacity: 1; pointer-events: auto; }
+@media (min-width: 1201px) { .app[data-inspector="open"] .scrim { opacity: 0; pointer-events: none; } }
+@media (min-width: 1025px) { .app[data-sidebar="open"] .scrim { opacity: 0; pointer-events: none; } }
+
+.overlay {
+  position: fixed; inset: 0; z-index: 60; display: grid; background: var(--surface-overlay);
+  animation: fade .16s ease-out;
+}
+.overlay[hidden] { display: none; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+
+.palette {
+  place-self: start center; width: min(620px, 92vw); margin-top: 12vh;
+  background: var(--surface-popover); border: 1px solid var(--border-default); border-radius: 10px;
+  box-shadow: 0 18px 48px var(--shadow-dialog); overflow: hidden; animation: rise .18s cubic-bezier(.2,.7,.3,1);
+}
+.palette-in { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 48px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); }
+.palette-in input { flex: 1 1 0; min-width: 0; border: 0; background: none; outline: none; font-size: 15px; color: var(--text-primary); }
+.palette-in input::placeholder { color: var(--text-muted); }
+.palette-in kbd { flex: none; }
+.palette-list { max-height: min(420px, 52vh); overflow-y: auto; padding: 6px; }
+.palette-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.pcmd {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px;
+  padding: 6px 10px; border-radius: 6px; text-align: left; color: var(--text-primary);
+}
+.pcmd .t { flex: 1 1 0; min-width: 0; font-size: 13.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pcmd .s { flex: none; font-size: 11.5px; color: var(--text-muted); }
+.pcmd[data-active="true"] { background: var(--state-selected); color: var(--accent); }
+.pcmd[data-active="true"] .s { color: var(--accent); }
+.palette-foot { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border-default); background: var(--surface-sidebar); font-size: 11.5px; color: var(--text-secondary); }
+kbd {
+  display: inline-block; min-width: 18px; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--border-strong); border-bottom-width: 2px;
+  background: var(--surface-card); font-family: inherit; font-size: 11px; color: var(--text-secondary); text-align: center;
+}
+
+.dialog {
+  place-self: center; width: min(440px, 92vw);
+  background: var(--surface-dialog); border: 1px solid var(--border-default); border-radius: 10px;
+  box-shadow: 0 18px 48px var(--shadow-dialog); animation: rise .18s cubic-bezier(.2,.7,.3,1);
+}
+.dialog h2 { margin: 0; padding: 18px 20px 4px; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.dialog .sub { margin: 0; padding: 0 20px 14px; font-size: 13px; color: var(--text-secondary); }
+.dialog .body { padding: 0 20px 4px; }
+.dialog .foot { display: flex; gap: 8px; justify-content: flex-end; padding: 16px 20px 18px; }
+fieldset { border: 0; margin: 0 0 16px; padding: 0; }
+legend { padding: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.radio, .check {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 36px; padding: 7px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.radio:hover, .check:hover { background: var(--state-hover-subtle); }
+.radio input, .check input { margin: 2px 0 0; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.radio .txt b, .check .txt b { display: block; font-size: 13px; font-weight: 500; }
+.radio .txt span, .check .txt span { display: block; font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+
+.drop {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-overlay));
+}
+.drop[hidden] { display: none; }
+.drop-in {
+  display: grid; justify-items: center; gap: 10px; padding: 36px 48px;
+  border: 2px dashed var(--accent); border-radius: 14px;
+  background: var(--surface-dialog); color: var(--text-primary); text-align: center;
+}
+.drop-in b { font-size: 16px; font-weight: 650; }
+.drop-in span { font-size: 13px; color: var(--text-secondary); }
+.drop-in .icon { width: 30px; height: 30px; color: var(--accent); }
+
+.toasts { position: fixed; right: 16px; bottom: 40px; z-index: 80; display: grid; gap: 8px; justify-items: end; }
+.toast {
+  display: flex; align-items: center; gap: 10px; max-width: 380px;
+  padding: 10px 14px; border-radius: 8px;
+  background: var(--surface-dialog); border: 1px solid var(--border-default);
+  box-shadow: 0 8px 24px var(--shadow-popover); font-size: 13px;
+  animation: rise .2s cubic-bezier(.2,.7,.3,1);
+}
+.toast.ok .icon { color: var(--ok-text); }
+.toast.err .icon { color: var(--err-text); }
+.toast b { font-weight: 600; }
+.toast .sub2 { display: block; font-size: 11.5px; color: var(--text-secondary); }
+
+/* ============================================================
+   반응형 — 1440 / 1200 / 1024 / 768
+   ============================================================ */
+@media (max-width: 1440px) {
+  .workspace { grid-template-columns: 232px 312px minmax(0,1fr) 284px; }
+  .reading { padding: 28px 32px 72px; }
+}
+@media (max-width: 1200px) {
+  .workspace { grid-template-columns: 232px 312px minmax(0,1fr); }
+  .inspector {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 300px; z-index: 30;
+    transform: translateX(102%); box-shadow: -10px 0 30px var(--shadow-dialog);
+  }
+  .app[data-inspector="open"] .inspector { transform: none; }
+  .inspector-open { display: inline-grid; }
+  .insp-close { display: inline-grid; }
+}
+@media (min-width: 1201px) { .insp-close { display: none; } }
+@media (max-width: 1024px) {
+  .workspace { grid-template-columns: 312px minmax(0,1fr); }
+  .sidebar {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 248px; z-index: 30;
+    transform: translateX(-102%); box-shadow: 10px 0 30px var(--shadow-dialog);
+  }
+  .app[data-sidebar="open"] .sidebar { transform: none; }
+  .nav-toggle { display: inline-grid; }
+  .sb-hide { display: none; }
+}
+@media (max-width: 768px) {
+  .workspace { grid-template-columns: minmax(0,1fr); }
+  .listpane, .viewer { display: none; }
+  .app[data-pane="list"] .listpane { display: grid; }
+  .app[data-pane="viewer"] .viewer { display: grid; }
+  .listpane { border-right: 0; }
+  .back-to-list { display: inline-grid; }
+  .sidebar { width: min(248px, 82vw); }
+  .inspector { width: min(300px, 88vw); }
+  .reading { padding: 24px 20px 64px; }
+  .reading-inner { font-size: 16px; }
+  .reading-inner h1 { font-size: 24px; }
+  .tb-menu { display: none; }
+}
+@media (max-width: 520px) {
+  .tb-name { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<svg class="sr" aria-hidden="true"><defs>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 12h5l2 3h4l2-3h5"/><path d="M5.4 4.5h13.2a2 2 0 0 1 1.9 1.4L22 12v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5l1.5-6.1a2 2 0 0 1 1.9-1.4Z"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 2.6 17.1A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.9L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 16.5h.01"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2 2 0 0 1 5 5.5h3.6a2 2 0 0 1 1.5.7l1 1.3H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 7h14"/><path d="M4 12h9"/><path d="M4 17h5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 19h16"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-13.7-5L3 9"/><path d="M3 4v5h5"/><path d="M4 13a8 8 0 0 0 13.7 5L21 15"/><path d="M21 20v-5h-5"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M12 17v4"/><path d="m5.6 5.6 2.9 2.9"/><path d="m15.5 15.5 2.9 2.9"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m5.6 18.4 2.9-2.9"/><path d="m15.5 8.5 2.9-2.9"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M15 4.5v15"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5"/><path d="M12 19v2.5"/><path d="M4.2 4.2 6 6"/><path d="m18 18 1.8 1.8"/><path d="M2.5 12H5"/><path d="M19 12h2.5"/><path d="M4.2 19.8 6 18"/><path d="m18 6 1.8-1.8"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5 13.8 9 19 10.8 13.8 12.6 12 18l-1.8-5.4L5 10.8 10.2 9Z"/><path d="M18.5 16.5 19 18l1.5.5L19 19l-.5 1.5L18 19l-1.5-.5L18 18Z"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14"/><path d="M5 15h14"/><path d="M10 4 8.5 20"/><path d="M15.5 4 14 20"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m9 17-5-5 5-5"/><path d="m15 7 5 5-5 5"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M9 10v9"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 14.3.9.5a1 1 0 0 1 .4 1.4l-1 1.7a1 1 0 0 1-1.3.4l-1-.4a7.6 7.6 0 0 1-1.8 1l-.2 1a1 1 0 0 1-1 .8h-2a1 1 0 0 1-1-.8l-.2-1a7.6 7.6 0 0 1-1.8-1l-1 .4a1 1 0 0 1-1.3-.4l-1-1.7a1 1 0 0 1 .4-1.4l.9-.5a7.4 7.4 0 0 1 0-2.1l-.9-.5a1 1 0 0 1-.4-1.4l1-1.7A1 1 0 0 1 6.4 8l1 .4a7.6 7.6 0 0 1 1.8-1l.2-1a1 1 0 0 1 1-.8h2a1 1 0 0 1 1 .8l.2 1c.6.3 1.2.6 1.8 1l1-.4a1 1 0 0 1 1.3.4l1 1.7a1 1 0 0 1-.4 1.4l-.9.5a7.4 7.4 0 0 1 0 2.1Z"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 2.5V6"/><path d="M14.5 2.5V6"/><path d="M9.5 18v3.5"/><path d="M14.5 18v3.5"/><path d="M2.5 9.5H6"/><path d="M2.5 14.5H6"/><path d="M18 9.5h3.5"/><path d="M18 14.5h3.5"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H11l-.5 8L19 10.5h-6.5Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9.5 7V5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7"/><path d="M6.5 7 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 19V8"/><path d="m7.5 12.5 4.5-4.5 4.5 4.5"/><path d="M4 5h16"/></symbol>
+</defs></svg>
+
+<div class="app" id="app" data-pane="list" data-sidebar="closed" data-inspector="closed">
+
+  <!-- ============== Windows 캡션바 ============== -->
+  <header class="titlebar">
+    <button class="icon-btn nav-toggle" id="navToggle" style="margin:6px 2px 6px 6px" aria-label="탐색 사이드바 열기" aria-expanded="false">
+      <svg class="icon"><use href="#i-menu"/></svg>
+    </button>
+    <div class="tb-brand">
+      <span class="tb-mark" aria-hidden="true">M</span>
+      <span class="tb-name">MarkExtract</span>
+    </div>
+    <nav class="tb-menu" aria-label="주 메뉴">
+      <button type="button">파일</button>
+      <button type="button">편집</button>
+      <button type="button">보기</button>
+      <button type="button">도움말</button>
+    </nav>
+    <div class="tb-drag"></div>
+    <div class="tb-right">
+      <button class="tb-tool" id="paletteOpen">
+        <svg class="icon icon-sm"><use href="#i-search"/></svg>
+        <span>검색 및 명령</span>
+        <kbd>Ctrl</kbd><kbd>K</kbd>
+      </button>
+      <button class="tb-tool" id="themeToggle" aria-pressed="false">
+        <svg class="icon icon-sm" id="themeIcon"><use href="#i-moon"/></svg>
+        <span id="themeLabel">다크 모드</span>
+      </button>
+      <div class="caption">
+        <button type="button" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+        <button type="button" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+        <button type="button" class="close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="m0 0 10 10M10 0 0 10"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============== 워크스페이스 ============== -->
+  <div class="workspace">
+    <div class="scrim" id="scrim"></div>
+
+    <!-- 좌측 내비게이션 -->
+    <aside class="sidebar" aria-label="문서 탐색">
+      <nav class="nav od-scroll" id="nav"><!-- JS --></nav>
+      <div class="sidebar-foot">
+        <button class="watch-add" id="addWatch">
+          <svg class="icon"><use href="#i-plus"/></svg>
+          <span>감시 폴더 추가</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 중앙 리스트 -->
+    <section class="listpane" aria-label="문서 목록">
+      <div class="list-head">
+        <h1 class="list-title" id="listTitle">변환 큐</h1>
+        <button class="icon-btn" id="sortBtn" title="수정일 기준 정렬" aria-label="정렬 기준 변경">
+          <svg class="icon"><use href="#i-sort"/></svg>
+        </button>
+        <button class="icon-btn" id="addFile" title="파일 추가" aria-label="파일 추가">
+          <svg class="icon"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+      <div class="list-filter">
+        <div class="search">
+          <svg class="icon icon-sm"><use href="#i-search"/></svg>
+          <label class="sr" for="listSearch">문서 검색</label>
+          <input id="listSearch" type="text" placeholder="파일명 또는 본문 검색" autocomplete="off">
+          <button class="icon-btn" id="clearSearch" style="width:20px;height:20px" hidden aria-label="검색어 지우기">
+            <svg class="icon icon-sm"><use href="#i-x"/></svg>
+          </button>
+        </div>
+        <div class="chips" role="group" aria-label="상태 필터">
+          <button class="chip" data-status="all" aria-pressed="true">전체</button>
+          <button class="chip" data-status="done" aria-pressed="false">완료</button>
+          <button class="chip" data-status="run" aria-pressed="false">변환중</button>
+          <button class="chip" data-status="queued" aria-pressed="false">대기</button>
+          <button class="chip" data-status="failed" aria-pressed="false">실패</button>
+        </div>
+      </div>
+      <div class="doclist od-scroll" id="docList" role="listbox" aria-label="문서" tabindex="0"><!-- JS --></div>
+    </section>
+
+    <!-- 메인 뷰어 -->
+    <main class="viewer" aria-label="변환 결과">
+      <div class="viewer-bar">
+        <button class="icon-btn back-to-list" id="backToList" aria-label="목록으로 돌아가기">
+          <svg class="icon"><use href="#i-left"/></svg>
+        </button>
+        <nav class="crumbs" id="crumbs" aria-label="현재 문서 경로"></nav>
+        <button class="icon-btn" id="starBtn" aria-label="즐겨찾기" aria-pressed="false"><svg class="icon"><use href="#i-star"/></svg></button>
+        <button class="icon-btn" id="reconvertBtn" title="재변환" aria-label="재변환"><svg class="icon"><use href="#i-refresh"/></svg></button>
+        <button class="icon-btn" id="copyBtn" title="Markdown 복사" aria-label="Markdown 복사"><svg class="icon"><use href="#i-copy"/></svg></button>
+        <button class="icon-btn" id="exportBtn" title="내보내기" aria-label="내보내기"><svg class="icon"><use href="#i-down"/></svg></button>
+        <span class="vbar-div" aria-hidden="true"></span>
+        <button class="icon-btn" id="deleteBtn" title="큐에서 제거" aria-label="큐에서 제거"><svg class="icon"><use href="#i-trash"/></svg></button>
+        <button class="icon-btn" id="moreBtn" title="더보기" aria-label="더보기"><svg class="icon"><use href="#i-more"/></svg></button>
+        <button class="icon-btn inspector-open" id="inspectorOpen" aria-label="속성 패널 열기"><svg class="icon"><use href="#i-panel"/></svg></button>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="결과 보기 방식">
+        <button class="tab" role="tab" id="tab-render" aria-controls="panel" aria-selected="true" data-tab="render">
+          <svg class="icon icon-sm"><use href="#i-eye"/></svg><span>렌더링</span>
+        </button>
+        <button class="tab" role="tab" id="tab-source" aria-controls="panel" aria-selected="false" data-tab="source" tabindex="-1">
+          <svg class="icon icon-sm"><use href="#i-code"/></svg><span>원본 Markdown</span>
+        </button>
+        <button class="tab" role="tab" id="tab-fields" aria-controls="panel" aria-selected="false" data-tab="fields" tabindex="-1">
+          <svg class="icon icon-sm"><use href="#i-table"/></svg><span>추출 필드</span><span class="n" id="fieldCount"></span>
+        </button>
+      </div>
+
+      <div class="od-scroll" id="panelScroll">
+        <div id="dirtyBar"></div>
+        <div id="panel" role="tabpanel" aria-labelledby="tab-render"><!-- JS --></div>
+      </div>
+    </main>
+
+    <!-- 우측 인스펙터 -->
+    <aside class="inspector" aria-label="문서 속성 및 추출 옵션">
+      <div class="insp-head">
+        <svg class="icon" style="color:var(--text-secondary)"><use href="#i-gear"/></svg>
+        <h2>속성 및 추출 옵션</h2>
+        <button class="icon-btn insp-close" id="inspClose" aria-label="속성 패널 닫기">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="insp-body od-scroll" id="inspBody"><!-- JS --></div>
+    </aside>
+  </div>
+
+  <!-- ============== 상태바 ============== -->
+  <footer class="statusbar">
+    <button class="sb" id="sbWatch"><svg class="icon"><use href="#i-folder"/></svg><span id="sbWatchText">C:\Docs\Inbox</span></button>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-cpu"/></svg><span>Alpha 2026.9.3</span></span>
+    <span class="sb"><span class="dot" id="sbDot"></span><span id="sbQueue">큐 대기 없음</span></span>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-zap"/></svg><span id="sbSpeed">평균 4.2초/문서</span></span>
+    <span class="sb sb-hide"><svg class="icon"><use href="#i-sparkle"/></svg><span id="sbEngine">엔진 · 레이아웃 분석 v2</span></span>
+    <span class="sb-right">
+      <span class="sb" id="sbTokens"></span>
+      <button class="sb" id="sbZoom">110%</button>
+      <button class="sb" aria-label="설정"><svg class="icon"><use href="#i-gear"/></svg></button>
+    </span>
+  </footer>
+</div>
+
+<!-- ============== 커맨드 팔레트 ============== -->
+<div class="overlay" id="paletteOverlay" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="명령 팔레트">
+    <div class="palette-in">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <label class="sr" for="paletteInput">명령 또는 문서 검색</label>
+      <input id="paletteInput" type="text" placeholder="문서 검색 또는 명령 실행…" autocomplete="off">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="palette-list" id="paletteList"></div>
+    <div class="palette-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
+      <span><kbd>Enter</kbd> 실행</span>
+      <span><kbd>Esc</kbd> 닫기</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============== 내보내기 다이얼로그 ============== -->
+<div class="overlay" id="exportOverlay" hidden>
+  <form class="dialog" id="exportForm" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">Markdown 내보내기</h2>
+    <p class="sub" id="exportSub"></p>
+    <div class="body">
+      <fieldset>
+        <legend>출력 형식</legend>
+        <label class="radio"><input type="radio" name="fmt" value="md" checked>
+          <span class="txt"><b>Markdown (.md)</b><span>사람이 읽고 편집하기 위한 단일 파일</span></span></label>
+        <label class="radio"><input type="radio" name="fmt" value="jsonl">
+          <span class="txt"><b>JSONL (.jsonl)</b><span>청크 단위 레코드 — RAG 인덱싱용</span></span></label>
+        <label class="radio"><input type="radio" name="fmt" value="clip">
+          <span class="txt"><b>클립보드에 복사</b><span>파일을 만들지 않고 바로 붙여넣기</span></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>포함 항목</legend>
+        <label class="check"><input type="checkbox" id="optFm" checked>
+          <span class="txt"><b>YAML 프런트매터</b><span>제목, 출처, 페이지 수 등 메타데이터</span></span></label>
+        <label class="check"><input type="checkbox" id="optImg" checked>
+          <span class="txt"><b>이미지 참조</b><span>추출된 이미지를 상대 경로로 기록</span></span></label>
+      </fieldset>
+      <div class="opt" id="pathRow">
+        <label for="exportPath">저장 위치</label>
+        <input id="exportPath" type="text" value="C:\Docs\Output">
+      </div>
+    </div>
+    <div class="foot">
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary">내보내기</button>
+    </div>
+  </form>
+</div>
+
+<!-- ============== 드롭 오버레이 ============== -->
+<div class="drop" id="dropOverlay" hidden>
+  <div class="drop-in">
+    <svg class="icon"><use href="#i-upload"/></svg>
+    <b>여기에 놓아 변환 큐에 추가</b>
+    <span>PDF · DOCX · XLSX · PPTX 지원</span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ============================================================
+   데이터 — 샘플 문서
+   ============================================================ */
+const STATUS = {
+  done:   { label: "완료",   icon: "i-check",  cls: "done" },
+  run:    { label: "변환중", icon: "i-loader", cls: "run" },
+  queued: { label: "대기",   icon: "i-clock",  cls: "queued" },
+  failed: { label: "실패",   icon: "i-alert",  cls: "failed" }
+};
+const KIND = { pdf: "PDF", docx: "DOC", xlsx: "XLS", pptx: "PPT" };
+const FOLDERS = [
+  { id: "inbox",     name: "C:\\Docs\\Inbox" },
+  { id: "contracts", name: "OneDrive\\계약서" }
+];
+
+let seq = 0;
+const doc = (o) => Object.assign({
+  id: "d" + (++seq), star: false, progress: 0, dirty: false, tokens: 0,
+  opts: { ocr: false, tables: "markdown", images: "reference", chunk: 800, strip: true }
+}, o);
+
+const DOCS = [
+doc({
+  name: "Attention Is All You Need.pdf", kind: "pdf", folder: "inbox", status: "done", star: true,
+  pages: 15, size: "2.14 MB", tokens: 9840, time: "방금 전", created: "오늘 09:12", elapsed: "3.8초",
+  engine: "레이아웃 분석 v2", tablesFound: 4, imagesFound: 6,
+  snippet: "Transformer 아키텍처를 제안한 2017년 NeurIPS 논문. 초록, 8개 섹션, 4개 표, 6개 그림이 구조화되어 추출되었습니다.",
+  fields: [
+    ["문서 제목", "Attention Is All You Need", 99],
+    ["저자", "Ashish Vaswani 외 7인", 96],
+    ["발행", "NeurIPS 2017 (Advances in Neural Information Processing Systems 30)", 94],
+    ["언어", "영어 (en)", 99],
+    ["섹션 수", "8", 100],
+    ["표 / 그림", "표 4개 · 그림 6개", 97],
+    ["참고문헌", "40건", 92],
+    ["감지된 수식", "23개 (LaTeX로 변환)", 88]
+  ],
+  md: `---
+title: Attention Is All You Need
+authors: Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin
+venue: NeurIPS 2017
+pages: 15
+source: Attention Is All You Need.pdf
+---
+
+# Attention Is All You Need
+
+## Abstract
+
+지배적인 시퀀스 변환 모델은 인코더와 디코더를 포함하는 복잡한 순환 신경망 또는 합성곱 신경망에 기반한다. 본 논문은 순환과 합성곱을 완전히 배제하고 **어텐션 메커니즘에만** 기반한 새로운 단순 네트워크 아키텍처 *Transformer* 를 제안한다.
+
+## 1. Introduction
+
+순환 모델은 일반적으로 입력과 출력 시퀀스의 기호 위치를 따라 계산을 분해한다. 이러한 본질적인 순차성은 학습 예제 내에서의 병렬화를 배제하며, 이는 시퀀스 길이가 길어질수록 치명적이 된다.
+
+## 2. Background
+
+순차 계산을 줄이려는 목표는 Extended Neural GPU, ByteNet, ConvS2S의 기반을 형성한다. 이들 모두 합성곱 신경망을 기본 구성 요소로 사용한다.
+
+> Self-attention은 시퀀스의 표현을 계산하기 위해 단일 시퀀스의 서로 다른 위치를 연관시키는 어텐션 메커니즘이다.
+
+## 3. Model Architecture
+
+### 3.1 Encoder and Decoder Stacks
+
+- **Encoder** — 동일한 6개 레이어의 스택. 각 레이어는 multi-head self-attention과 position-wise feed-forward 네트워크 두 개의 하위 계층을 가진다.
+- **Decoder** — 마찬가지로 6개 레이어. 인코더 출력에 대해 multi-head attention을 수행하는 세 번째 하위 계층이 추가된다.
+
+### 3.2 Attention
+
+Scaled Dot-Product Attention은 다음과 같이 계산된다.
+
+\`\`\`text
+Attention(Q, K, V) = softmax(Q K^T / sqrt(d_k)) V
+\`\`\`
+
+Multi-Head Attention은 \`h = 8\` 개의 병렬 어텐션 헤드를 사용하며, 각 헤드의 차원은 \`d_k = d_v = d_model / h = 64\` 이다.
+
+![그림 2: Scaled Dot-Product Attention과 Multi-Head Attention](images/figure-2.png)
+
+## 4. Why Self-Attention
+
+| 레이어 종류 | 레이어당 복잡도 | 순차 연산 | 최대 경로 길이 |
+| --- | --- | --- | --- |
+| Self-Attention | O(n²·d) | O(1) | O(1) |
+| Recurrent | O(n·d²) | O(n) | O(n) |
+| Convolutional | O(k·n·d²) | O(1) | O(log_k n) |
+| Self-Attention (restricted) | O(r·n·d) | O(1) | O(n/r) |
+
+## 5. Training
+
+모델은 450만 개 문장 쌍으로 구성된 WMT 2014 영어-독일어 데이터셋으로 학습되었다. 8개의 NVIDIA P100 GPU에서 기본 모델은 12시간, 대형 모델은 3.5일 학습되었다.
+
+## 6. Results
+
+| 모델 | EN-DE BLEU | EN-FR BLEU | 학습 비용 (FLOPs) |
+| --- | --- | --- | --- |
+| ByteNet | 23.75 | — | — |
+| GNMT + RL | 24.6 | 39.92 | 1.4 × 10²⁰ |
+| ConvS2S | 25.16 | 40.46 | 1.5 × 10²⁰ |
+| **Transformer (big)** | **28.4** | **41.8** | 2.3 × 10¹⁹ |
+
+## 7. Conclusion
+
+본 논문은 전적으로 어텐션에 기반한 최초의 시퀀스 변환 모델을 제시했다. 번역 작업에서 Transformer는 순환 또는 합성곱 계층 기반 아키텍처보다 훨씬 빠르게 학습될 수 있다.`
+}),
+
+doc({
+  name: "2026_3분기_실적발표.pptx", kind: "pptx", folder: "inbox", status: "done",
+  pages: 34, size: "18.7 MB", tokens: 4120, time: "12분 전", created: "오늘 08:41", elapsed: "11.2초",
+  engine: "슬라이드 구조 분석", tablesFound: 6, imagesFound: 21,
+  snippet: "노바테크(주) 사내 실적 발표 자료. 34개 슬라이드의 제목·본문·발표자 노트와 6개 표가 슬라이드 순서대로 추출되었습니다.",
+  fields: [
+    ["문서 제목", "2026년 3분기 실적 발표", 98],
+    ["작성 조직", "노바테크(주) 경영기획실 (예시 데이터)", 90],
+    ["슬라이드 수", "34", 100],
+    ["발표자 노트", "28개 슬라이드에 존재 — 함께 추출됨", 95],
+    ["차트 개체", "9개 — 데이터 테이블로 변환", 87],
+    ["언어", "한국어 (ko)", 99]
+  ],
+  md: `---
+title: 2026년 3분기 실적 발표
+organization: 노바테크(주) 경영기획실
+slides: 34
+note: 예시용 가상 기업 데이터입니다
+source: 2026_3분기_실적발표.pptx
+---
+
+# 2026년 3분기 실적 발표
+
+## 슬라이드 1 — 표지
+
+**2026년 3분기 실적 발표**
+노바테크(주) · 경영기획실
+
+## 슬라이드 2 — 요약
+
+- 매출 **1,482억 원**, 전년 동기 대비 증가
+- 영업이익률 두 자릿수 유지
+- 신규 구독 고객 순증 지속
+
+> 발표자 노트: 요약 페이지는 30초 이내로 넘어가고, 세부 수치는 재무 섹션에서 다룹니다.
+
+## 슬라이드 7 — 부문별 매출
+
+| 사업 부문 | 3Q 매출 (억원) | 전분기 대비 | 매출 비중 |
+| --- | --- | --- | --- |
+| 클라우드 플랫폼 | 642 | +8.4% | 43.3% |
+| 엔터프라이즈 SW | 418 | +2.1% | 28.2% |
+| 컨설팅 | 267 | -1.6% | 18.0% |
+| 기타 | 155 | +5.0% | 10.5% |
+
+## 슬라이드 12 — 비용 구조
+
+1. 인건비가 전체 판관비의 절반 이상을 차지
+2. 클라우드 인프라 비용은 사용량 최적화로 전분기 대비 감소
+3. 마케팅 비용은 신규 제품 출시에 맞춰 일시적으로 증가
+
+![슬라이드 12 차트: 판관비 구성 도넛 차트](images/slide-12-chart-1.png)
+
+## 슬라이드 21 — 4분기 계획
+
+- 신규 리전 2곳 오픈
+- 파트너 채널 확대
+- 구독 전환율 개선 프로그램 운영
+
+> 발표자 노트: 계획 수치는 이사회 확정 전 초안이므로 외부 공유 금지.
+
+## 슬라이드 34 — 마무리
+
+질의응답 및 감사 인사.`
+}),
+
+doc({
+  name: "서비스_이용약관_v3.2.docx", kind: "docx", folder: "contracts", status: "done", star: true,
+  pages: 11, size: "412 KB", tokens: 6230, time: "38분 전", created: "오늘 08:15", elapsed: "2.1초",
+  engine: "스타일 기반 구조 분석", tablesFound: 2, imagesFound: 0,
+  snippet: "조·항·호 3단계 번호 체계를 헤딩 레벨로 매핑하고, 변경 이력 표와 정의 조항을 표로 보존했습니다.",
+  fields: [
+    ["문서 제목", "서비스 이용약관", 99],
+    ["버전", "v3.2", 98],
+    ["시행일", "2026년 10월 1일", 96],
+    ["조문 수", "24개 조", 99],
+    ["정의 용어", "12개", 94],
+    ["변경 이력", "3건 (v3.0 → v3.2)", 91],
+    ["언어", "한국어 (ko)", 99]
+  ],
+  md: `---
+title: 서비스 이용약관
+version: v3.2
+effective_date: 2026-10-01
+articles: 24
+source: 서비스_이용약관_v3.2.docx
+---
+
+# 서비스 이용약관 (v3.2)
+
+## 제1장 총칙
+
+### 제1조 (목적)
+
+본 약관은 회사가 제공하는 서비스의 이용과 관련하여 회사와 이용자 간의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
+
+### 제2조 (정의)
+
+| 용어 | 정의 |
+| --- | --- |
+| 서비스 | 회사가 제공하는 온라인 문서 처리 서비스 일체 |
+| 이용자 | 본 약관에 따라 서비스를 이용하는 개인 또는 법인 |
+| 계정 | 이용자 식별과 서비스 이용을 위해 부여되는 고유 정보 |
+| 콘텐츠 | 이용자가 서비스에 업로드하거나 생성한 모든 자료 |
+
+### 제3조 (약관의 효력 및 변경)
+
+1. 본 약관은 서비스 화면에 게시함으로써 효력이 발생합니다.
+2. 회사는 관련 법령을 위반하지 않는 범위에서 약관을 변경할 수 있습니다.
+3. 변경된 약관은 **시행일 7일 전**까지 공지합니다. 이용자에게 불리한 변경의 경우 30일 전에 공지합니다.
+
+## 제2장 서비스 이용
+
+### 제8조 (이용계약의 성립)
+
+이용계약은 이용자의 가입 신청에 대하여 회사가 승낙함으로써 성립합니다.
+
+### 제11조 (콘텐츠의 귀속)
+
+> 이용자가 업로드한 콘텐츠의 지식재산권은 이용자에게 귀속됩니다. 회사는 서비스 제공에 필요한 범위 내에서만 이를 이용합니다.
+
+## 제4장 기타
+
+### 제23조 (준거법 및 관할)
+
+본 약관은 대한민국 법률에 따라 해석되며, 분쟁 발생 시 민사소송법상 관할 법원을 제1심 관할 법원으로 합니다.
+
+---
+
+## 부록 A — 변경 이력
+
+| 버전 | 시행일 | 주요 변경 사항 |
+| --- | --- | --- |
+| v3.0 | 2025-04-01 | 전면 개정, 조문 번호 재배열 |
+| v3.1 | 2025-11-01 | 제11조 콘텐츠 귀속 조항 명확화 |
+| v3.2 | 2026-10-01 | 제3조 공지 기간 조정, 부록 A 신설 |`
+}),
+
+doc({
+  name: "FY2026_재무모델.xlsx", kind: "xlsx", folder: "inbox", status: "run", progress: 48,
+  pages: 8, size: "3.4 MB", tokens: 0, time: "변환 중", created: "오늘 09:31", elapsed: "—",
+  engine: "시트 · 수식 분석", tablesFound: 8, imagesFound: 0,
+  snippet: "8개 시트를 순서대로 처리 중입니다. 병합 셀 해제, 수식 결과값 고정, 시트별 헤더 추론이 진행됩니다.",
+  fields: [
+    ["시트 수", "8", 100],
+    ["처리 상태", "3 / 8 시트 완료", 100],
+    ["감지된 헤더 행", "시트별 1~2행", 89]
+  ],
+  md: `---
+title: FY2026 재무모델
+sheets: 8
+source: FY2026_재무모델.xlsx
+---
+
+# FY2026 재무모델
+
+## 시트 1 — Assumptions
+
+| 항목 | 값 | 단위 | 비고 |
+| --- | --- | --- | --- |
+| 할인율 | 9.5 | % | WACC 기준 |
+| 영구성장률 | 2.0 | % | 물가상승률 연동 |
+| 법인세율 | 22.0 | % | 표준세율 |
+
+## 시트 2 — Revenue
+
+| 분기 | 신규 | 갱신 | 합계 (백만원) |
+| --- | --- | --- | --- |
+| 1Q | 1,240 | 3,880 | 5,120 |
+| 2Q | 1,310 | 4,020 | 5,330 |
+| 3Q | 1,405 | 4,190 | 5,595 |
+
+## 시트 3 — Cost
+
+처리 중…`
+}),
+
+doc({
+  name: "제품_사양서_HX-200.pdf", kind: "pdf", folder: "inbox", status: "queued",
+  pages: 24, size: "6.8 MB", tokens: 0, time: "대기 중", created: "오늘 09:33", elapsed: "—",
+  engine: "레이아웃 분석 v2", tablesFound: 0, imagesFound: 0,
+  snippet: "큐에서 대기 중입니다. 2단 조판이 감지되어 컬럼 분리 후 읽기 순서를 재구성할 예정입니다.",
+  fields: [["대기 순번", "1", 100], ["감지된 조판", "2단 컬럼", 86]],
+  md: ""
+}),
+
+doc({
+  name: "회의록_2026-09-11.docx", kind: "docx", folder: "contracts", status: "done",
+  pages: 4, size: "96 KB", tokens: 1480, time: "3시간 전", created: "어제 17:24", elapsed: "0.9초",
+  engine: "스타일 기반 구조 분석", tablesFound: 1, imagesFound: 0,
+  snippet: "참석자 표와 결정사항·액션 아이템 목록이 분리 추출되었습니다. 담당자와 기한이 필드로 구조화됩니다.",
+  fields: [
+    ["회의명", "제품팀 주간 싱크", 97],
+    ["일시", "2026-09-11 14:00 – 15:10", 98],
+    ["참석자", "6명", 99],
+    ["결정 사항", "3건", 95],
+    ["액션 아이템", "5건 — 담당자·기한 포함", 93]
+  ],
+  md: `---
+title: 제품팀 주간 싱크 회의록
+date: 2026-09-11
+duration: 70분
+attendees: 6
+source: 회의록_2026-09-11.docx
+---
+
+# 제품팀 주간 싱크 회의록
+
+## 개요
+
+| 항목 | 내용 |
+| --- | --- |
+| 일시 | 2026년 9월 11일 14:00 – 15:10 |
+| 장소 | 3층 회의실 B / 온라인 병행 |
+| 작성자 | 김서연 |
+
+## 참석자
+
+- 김서연 (제품)
+- 박준호 (엔지니어링)
+- 이하늘 (디자인)
+- 정민수 (데이터)
+- 오예린 (QA)
+- 최도현 (고객지원)
+
+## 논의 내용
+
+### 1. 변환 실패율 개선
+
+스캔 PDF의 실패율이 가장 높다는 점에 모두 동의했습니다. OCR 자동 전환 임계값을 낮추는 방향으로 검토합니다.
+
+### 2. 청크 크기 기본값
+
+현재 기본값 800 토큰이 표가 많은 문서에서 표를 중간에 끊는 문제가 보고되었습니다.
+
+> 결정: 표 경계를 청크 경계로 우선하도록 분할 규칙을 변경한다.
+
+## 결정 사항
+
+1. OCR 자동 전환 임계값을 텍스트 레이어 비율 **15% 미만**으로 조정
+2. 청크 분할 시 표와 코드 블록은 분할하지 않음
+3. 실패 문서에 원인 코드와 권장 조치를 함께 노출
+
+## 액션 아이템
+
+| 담당 | 내용 | 기한 |
+| --- | --- | --- |
+| 박준호 | OCR 임계값 파라미터화 | 9월 18일 |
+| 정민수 | 청크 분할 규칙 개정안 작성 | 9월 16일 |
+| 이하늘 | 실패 상태 UI 시안 | 9월 17일 |
+| 오예린 | 회귀 테스트 세트에 스캔 문서 20건 추가 | 9월 19일 |
+| 최도현 | 실패 원인 문구 고객 관점 검수 | 9월 22일 |`
+}),
+
+doc({
+  name: "scanned_invoice_2026-08.pdf", kind: "pdf", folder: "contracts", status: "failed",
+  pages: 0, size: "9.1 MB", tokens: 0, time: "4시간 전", created: "어제 16:02", elapsed: "1.4초",
+  engine: "레이아웃 분석 v2", tablesFound: 0, imagesFound: 0,
+  error: {
+    code: "PDF_ENCRYPTED",
+    title: "암호로 보호된 PDF라 텍스트를 열 수 없습니다",
+    why: "이 파일은 소유자 암호로 콘텐츠 추출이 제한되어 있습니다. 뷰어에서는 열리지만 텍스트 레이어 접근 권한이 없어 파서가 페이지를 읽지 못했습니다.",
+    detail: [["실패 단계", "1단계 · 문서 열기"], ["원인 코드", "PDF_ENCRYPTED (권한 플래그 copy=false)"], ["시도 시각", "어제 16:02"]],
+    fix: "문서 암호를 입력하거나, 원본 발급처에서 보호가 해제된 사본을 받은 뒤 다시 시도하세요. 스캔본이라면 OCR을 켜고 재변환하면 이미지에서 직접 텍스트를 인식합니다."
+  },
+  snippet: "암호로 보호된 PDF입니다. 콘텐츠 추출 권한이 없어 1단계에서 중단되었습니다.",
+  fields: [],
+  md: ""
+}),
+
+doc({
+  name: "고객설문_원본데이터.xlsx", kind: "xlsx", folder: "inbox", status: "done",
+  pages: 3, size: "1.2 MB", tokens: 7910, time: "어제", created: "9월 14일 11:08", elapsed: "5.6초",
+  engine: "시트 · 수식 분석", tablesFound: 3, imagesFound: 0,
+  snippet: "응답 1,204건의 원본 시트와 집계 시트를 표로 변환했습니다. 자유 응답 열은 긴 텍스트로 별도 분리됩니다.",
+  fields: [
+    ["시트 수", "3", 100],
+    ["응답 수", "1,204건", 99],
+    ["문항 수", "객관식 14 · 주관식 3", 96],
+    ["결측치", "응답률 96.2%", 93],
+    ["집계 기간", "2026-08-01 – 2026-08-31", 97]
+  ],
+  md: `---
+title: 고객 만족도 설문 원본 데이터
+responses: 1204
+period: 2026-08-01 ~ 2026-08-31
+source: 고객설문_원본데이터.xlsx
+---
+
+# 고객 만족도 설문 원본 데이터
+
+## 시트 1 — Summary
+
+| 지표 | 값 |
+| --- | --- |
+| 총 응답 수 | 1,204 |
+| 유효 응답 | 1,158 |
+| 평균 만족도 (5점) | 4.12 |
+| NPS | 41 |
+
+## 시트 2 — By Segment
+
+| 세그먼트 | 응답 수 | 평균 만족도 | NPS |
+| --- | --- | --- | --- |
+| 개인 | 612 | 4.21 | 46 |
+| 소규모 팀 | 389 | 4.08 | 39 |
+| 엔터프라이즈 | 203 | 3.94 | 31 |
+
+## 시트 3 — Open Responses
+
+주관식 응답 3개 문항, 총 1,712개 문장. 개인정보로 판단되는 이메일 주소 패턴 **14건은 마스킹** 처리되었습니다.
+
+- "변환 속도가 빨라서 대량 처리에 쓰기 좋습니다."
+- "표가 많은 보고서에서 셀 병합이 가끔 깨집니다."
+- "폴더 감시 기능이 업무 흐름에 잘 맞습니다."`
+}),
+
+doc({
+  name: "브랜드_가이드라인_2026.pdf", kind: "pdf", folder: "inbox", status: "queued",
+  pages: 48, size: "24.3 MB", tokens: 0, time: "대기 중", created: "오늘 09:34", elapsed: "—",
+  engine: "레이아웃 분석 v2", tablesFound: 0, imagesFound: 0,
+  snippet: "큐에서 대기 중입니다. 이미지 비중이 높아 이미지 참조 모드로 처리될 예정입니다.",
+  fields: [["대기 순번", "2", 100], ["예상 이미지", "60개 이상", 82]],
+  md: ""
+})
+];
+
+/* 추가 대기 파일 풀 — 드롭·파일 추가 시 큐에 들어갑니다 */
+const POOL = [
+  { name: "임대차계약서_강남지점.pdf", kind: "pdf", folder: "contracts", pages: 9, size: "1.7 MB", tokens: 3260,
+    tablesFound: 2, imagesFound: 1, engine: "레이아웃 분석 v2",
+    snippet: "계약 당사자, 임대 기간, 보증금·차임 조항이 필드로 추출되었습니다.",
+    fields: [["문서 종류","부동산 임대차계약서",97],["계약 기간","2026-11-01 ~ 2028-10-31",95],["조문 수","18개 조",98],["서명란","2곳 감지",90]],
+    md: `---
+title: 임대차계약서 (강남지점)
+term: 2026-11-01 ~ 2028-10-31
+articles: 18
+source: 임대차계약서_강남지점.pdf
+---
+
+# 부동산 임대차계약서
+
+## 제1조 (목적물의 표시)
+
+| 항목 | 내용 |
+| --- | --- |
+| 소재지 | 서울특별시 강남구 (예시 주소) |
+| 용도 | 사무실 |
+| 면적 | 248.4 ㎡ |
+
+## 제2조 (임대차 기간)
+
+임대차 기간은 **2026년 11월 1일부터 2028년 10월 31일까지** 24개월로 한다.
+
+## 제3조 (차임 및 지급 시기)
+
+1. 월 차임은 매월 말일에 지급한다.
+2. 관리비는 실비 정산한다.
+
+## 제9조 (원상회복)
+
+임차인은 계약 종료 시 목적물을 원상으로 회복하여 반환한다.` },
+  { name: "온보딩_가이드.docx", kind: "docx", folder: "inbox", pages: 6, size: "188 KB", tokens: 2140,
+    tablesFound: 1, imagesFound: 4, engine: "스타일 기반 구조 분석",
+    snippet: "신규 입사자 온보딩 절차 6단계와 체크리스트가 목록 구조로 추출되었습니다.",
+    fields: [["문서 제목","신규 입사자 온보딩 가이드",98],["단계 수","6",100],["체크리스트 항목","22개",96],["언어","한국어 (ko)",99]],
+    md: `---
+title: 신규 입사자 온보딩 가이드
+steps: 6
+source: 온보딩_가이드.docx
+---
+
+# 신규 입사자 온보딩 가이드
+
+## 1일차 — 계정 및 장비
+
+- 사내 계정 발급 및 2단계 인증 설정
+- 노트북 수령 및 초기 설정
+- 보안 서약서 제출
+
+## 1주차 — 팀 온보딩
+
+1. 팀 소개 세션 참여
+2. 담당 제품 영역 문서 읽기
+3. 멘토와 1:1 일정 잡기
+
+## 체크리스트
+
+| 항목 | 담당 | 기한 |
+| --- | --- | --- |
+| 계정 발급 | IT | 1일차 |
+| 장비 지급 | 총무 | 1일차 |
+| 멘토 배정 | 팀 리드 | 3일차 |` },
+  { name: "2026_사업계획_요약.pptx", kind: "pptx", folder: "inbox", pages: 18, size: "9.4 MB", tokens: 2380,
+    tablesFound: 3, imagesFound: 11, engine: "슬라이드 구조 분석",
+    snippet: "18개 슬라이드의 제목과 본문, 3개 표가 슬라이드 순서대로 추출되었습니다.",
+    fields: [["문서 제목","2026 사업계획 요약",97],["슬라이드 수","18",100],["발표자 노트","12개 슬라이드",94]],
+    md: `---
+title: 2026 사업계획 요약
+slides: 18
+note: 예시용 가상 기업 데이터입니다
+source: 2026_사업계획_요약.pptx
+---
+
+# 2026 사업계획 요약
+
+## 슬라이드 3 — 전략 방향
+
+- 핵심 제품 집중
+- 파트너 생태계 확장
+- 운영 효율 개선
+
+## 슬라이드 9 — 목표 지표
+
+| 지표 | 2025 실적 | 2026 목표 |
+| --- | --- | --- |
+| 신규 고객 | 1,820 | 2,400 |
+| 갱신율 | 88% | 91% |
+| 지원 응답 시간 | 6.2시간 | 4.0시간 |` }
+];
+let poolIndex = 0;
+
+/* ============================================================
+   상태
+   ============================================================ */
+const state = {
+  view: "queue",        // queue | all | done | failed | star | kind:pdf | folder:inbox
+  status: "all",
+  query: "",
+  sort: "modified",     // modified | name | size
+  selected: null,
+  tab: "render"
+};
+
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const app = $("#app");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const icon = (id, cls = "icon") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+const nf = (n) => n.toLocaleString("ko-KR");
+
+/* ============================================================
+   Markdown 렌더러 (최소 구현)
+   ============================================================ */
+function splitFrontmatter(src) {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { fm: null, body: src };
+  const fm = m[1].split("\n").filter(Boolean).map((l) => {
+    const i = l.indexOf(":");
+    return i < 0 ? null : [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+  }).filter(Boolean);
+  return { fm, body: src.slice(m[0].length) };
+}
+
+function inline(s) {
+  return esc(s)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) =>
+      `<span class="imgref">${icon("i-image", "icon icon-sm")}<span>이미지 참조 · ${esc(src)}${alt ? " — " + esc(alt) : ""}</span></span>`)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+
+function renderMd(src) {
+  const lines = src.split("\n");
+  const out = [];
+  let i = 0;
+  const cells = (r) => r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const isBlock = (l) => /^(#{1,6}\s|\s*[-*]\s|\s*\d+\.\s|\||>|```|---+\s*$)/.test(l);
+
+  while (i < lines.length) {
+    const l = lines[i];
+    if (!l.trim()) { i++; continue; }
+    let m;
+    if ((m = l.match(/^(#{1,6})\s+(.*)$/))) {
+      const n = Math.min(m[1].length, 4);
+      out.push(`<h${n}>${inline(m[2])}</h${n}>`); i++; continue;
+    }
+    if (/^```/.test(l)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      i++; out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`); continue;
+    }
+    if (/^>\s?/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ""));
+      out.push(`<blockquote>${inline(buf.join(" "))}</blockquote>`); continue;
+    }
+    if (/^\|/.test(l)) {
+      const rows = [];
+      while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]);
+      const head = cells(rows[0]);
+      const body = rows.slice(/^\|[\s:|-]+\|$/.test(rows[1] || "") ? 2 : 1);
+      out.push(
+        `<table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` +
+        `<tbody>${body.map((r) => `<tr>${cells(r).map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+      ); continue;
+    }
+    if (/^\s*[-*]\s+/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*[-*]\s+/, ""));
+      out.push(`<ul>${buf.map((x) => `<li>${inline(x)}</li>`).join("")}</ul>`); continue;
+    }
+    if (/^\s*\d+\.\s+/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*\d+\.\s+/, ""));
+      out.push(`<ol>${buf.map((x) => `<li>${inline(x)}</li>`).join("")}</ol>`); continue;
+    }
+    if (/^---+\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) buf.push(lines[i++]);
+    out.push(`<p>${inline(buf.join(" "))}</p>`);
+  }
+  return out.join("\n");
+}
+
+function highlightMd(src) {
+  return esc(src)
+    .replace(/^(---)$/gm, '<span class="tk-f">$1</span>')
+    .replace(/^(#{1,6} .*)$/gm, '<span class="tk-h">$1</span>')
+    .replace(/^(&gt; .*)$/gm, '<span class="tk-q">$1</span>')
+    .replace(/^(\|.*)$/gm, '<span class="tk-t">$1</span>')
+    .replace(/^(\s*[-*] |\s*\d+\. )/gm, '<span class="tk-m">$1</span>')
+    .replace(/(\*\*[^*\n]+\*\*)/g, '<span class="tk-b">$1</span>')
+    .replace(/(`[^`\n]+`)/g, '<span class="tk-c">$1</span>');
+}
+
+/* ============================================================
+   파생 데이터
+   ============================================================ */
+const byStatus = (s) => DOCS.filter((d) => d.status === s);
+const counts = () => ({
+  queue: DOCS.filter((d) => d.status === "queued" || d.status === "run").length,
+  all: DOCS.length,
+  done: byStatus("done").length,
+  failed: byStatus("failed").length,
+  star: DOCS.filter((d) => d.star).length,
+  pdf: DOCS.filter((d) => d.kind === "pdf").length,
+  docx: DOCS.filter((d) => d.kind === "docx").length,
+  xlsx: DOCS.filter((d) => d.kind === "xlsx").length,
+  pptx: DOCS.filter((d) => d.kind === "pptx").length,
+  inbox: DOCS.filter((d) => d.folder === "inbox").length,
+  contracts: DOCS.filter((d) => d.folder === "contracts").length
+});
+
+const VIEWS = {
+  queue:  { title: "변환 큐",   test: (d) => d.status === "queued" || d.status === "run" },
+  all:    { title: "전체 문서", test: () => true },
+  done:   { title: "완료",      test: (d) => d.status === "done" },
+  failed: { title: "실패",      test: (d) => d.status === "failed" },
+  star:   { title: "즐겨찾기",  test: (d) => d.star }
+};
+function viewDef(v) {
+  if (VIEWS[v]) return VIEWS[v];
+  if (v.startsWith("kind:")) { const k = v.slice(5); return { title: KIND[k] + " 문서", test: (d) => d.kind === k }; }
+  if (v.startsWith("folder:")) {
+    const f = v.slice(7);
+    return { title: (FOLDERS.find((x) => x.id === f) || {}).name || "폴더", test: (d) => d.folder === f };
+  }
+  return VIEWS.all;
+}
+
+function visibleDocs() {
+  const def = viewDef(state.view);
+  const q = state.query.trim().toLowerCase();
+  let list = DOCS.filter((d) =>
+    def.test(d) &&
+    (state.status === "all" || d.status === state.status) &&
+    (!q || d.name.toLowerCase().includes(q) || d.snippet.toLowerCase().includes(q) || d.md.toLowerCase().includes(q))
+  );
+  const order = { run: 0, queued: 1, failed: 2, done: 3 };
+  if (state.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  else if (state.sort === "size") list.sort((a, b) => parseFloat(b.size) * (b.size.includes("MB") ? 1024 : 1) - parseFloat(a.size) * (a.size.includes("MB") ? 1024 : 1));
+  else list.sort((a, b) => (order[a.status] - order[b.status]) || (DOCS.indexOf(a) - DOCS.indexOf(b)));
+  return list;
+}
+const getDoc = (id) => DOCS.find((d) => d.id === id) || null;
+
+/* ============================================================
+   사이드바
+   ============================================================ */
+const collapsed = {};
+function renderNav() {
+  const c = counts();
+  const item = (view, ic, label, count, pill) => `
+    <button class="nav-item" role="link" data-view="${view}" aria-current="${state.view === view}">
+      ${ic}
+      <span class="label">${esc(label)}</span>
+      ${pill && count > 0 ? `<span class="pill">${count}</span>` : `<span class="count">${count}</span>`}
+    </button>`;
+  const fmtItem = (k, count) => `
+    <button class="nav-item" role="link" data-view="kind:${k}" aria-current="${state.view === "kind:" + k}">
+      <span class="fmt ${k}" aria-hidden="true">${KIND[k]}</span>
+      <span class="label">${k.toUpperCase()}</span>
+      <span class="count">${count}</span>
+    </button>`;
+  const group = (id, title, extra, body) => `
+    <div class="nav-group">
+      <button class="nav-head" data-group="${id}" aria-expanded="${!collapsed[id]}">
+        ${icon("i-chev", "icon icon-sm chev")}<span>${esc(title)}</span>
+        ${extra ? `<span class="count">${extra}</span>` : ""}
+      </button>
+      <div class="nav-body">${body}</div>
+    </div>`;
+
+  $("#nav").innerHTML = `
+    <div class="nav-group">
+      <div class="nav-body">
+        ${item("queue",  icon("i-inbox"), "변환 큐", c.queue, true)}
+        ${item("all",    icon("i-files"), "전체 문서", c.all)}
+        ${item("done",   icon("i-check"), "완료", c.done)}
+        ${item("failed", icon("i-alert"), "실패", c.failed)}
+      </div>
+    </div>
+    ${group("star", "즐겨찾기", c.star, item("star", icon("i-star"), "표시한 문서", c.star))}
+    ${group("kinds", "문서 형식", "", ["pdf", "docx", "xlsx", "pptx"].map((k) => fmtItem(k, c[k])).join(""))}
+    ${group("folders", "감시 폴더", "",
+      FOLDERS.map((f) => item("folder:" + f.id, icon("i-folder"), f.name, c[f.id])).join(""))}
+  `;
+}
+
+/* ============================================================
+   문서 리스트
+   ============================================================ */
+function statusChip(d) {
+  const s = STATUS[d.status];
+  return `<span class="status ${s.cls}">${icon(s.icon, "icon")}<span>${s.label}</span></span>`;
+}
+
+function renderList() {
+  const list = visibleDocs();
+  const el = $("#docList");
+  $("#listTitle").textContent = viewDef(state.view).title;
+
+  if (!list.length) {
+    const searching = state.query || state.status !== "all";
+    el.innerHTML = `
+      <div class="empty">
+        <span class="ring">${icon(searching ? "i-search" : "i-inbox", "icon")}</span>
+        <h3>${searching ? "조건에 맞는 문서가 없습니다" : "이 목록은 아직 비어 있습니다"}</h3>
+        <p>${searching
+          ? "검색어를 줄이거나 상태 필터를 전체로 되돌려 보세요."
+          : "파일을 창에 끌어다 놓거나 상단의 + 버튼으로 문서를 추가하면 변환이 시작됩니다."}</p>
+        <button class="btn" id="emptyAction">${searching ? "필터 초기화" : "파일 추가"}</button>
+      </div>`;
+    const act = $("#emptyAction");
+    if (act) act.addEventListener("click", () => {
+      if (searching) { state.query = ""; state.status = "all"; $("#listSearch").value = ""; syncChips(); renderList(); }
+      else enqueueNext();
+    });
+    return;
+  }
+
+  el.innerHTML = list.map((d) => `
+    <button class="doc" role="option" data-id="${d.id}" aria-selected="${state.selected === d.id}" tabindex="-1">
+      <span class="doc-top">
+        <span class="fmt ${d.kind}" aria-hidden="true">${KIND[d.kind]}</span>
+        <span class="doc-name">${esc(d.name)}</span>
+        ${d.star ? `<span class="doc-star" title="즐겨찾기">${icon("i-star", "icon icon-sm")}</span>` : ""}
+      </span>
+      <span class="doc-snip od-clamp-2">${esc(d.snippet)}</span>
+      <span class="doc-foot">
+        ${statusChip(d)}
+        <span class="od-nowrap" style="font-size:11.5px;color:var(--text-secondary)">
+          ${d.pages ? d.pages + (d.kind === "pptx" ? "슬라이드" : d.kind === "xlsx" ? "시트" : "쪽") + " · " : ""}${esc(d.size)}
+        </span>
+        <span class="doc-time">${esc(d.time)}</span>
+      </span>
+      ${d.status === "run" ? `<span class="bar"><i style="width:${d.progress}%"></i></span>` : ""}
+    </button>`).join("");
+}
+
+function syncChips() {
+  $$(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.status === state.status)));
+}
+
+/* ============================================================
+   뷰어
+   ============================================================ */
+function renderViewer() {
+  const d = getDoc(state.selected);
+  const crumbs = $("#crumbs");
+  const panel = $("#panel");
+  const dirtyBar = $("#dirtyBar");
+  dirtyBar.innerHTML = "";
+
+  const actions = ["#starBtn", "#reconvertBtn", "#copyBtn", "#exportBtn", "#deleteBtn", "#moreBtn"];
+
+  if (!d) {
+    crumbs.innerHTML = `<span class="seg">문서 없음</span>`;
+    actions.forEach((s) => ($(s).disabled = true));
+    $("#fieldCount").textContent = "";
+    panel.innerHTML = `
+      <div class="empty" style="padding:96px 28px">
+        <span class="ring">${icon("i-files", "icon")}</span>
+        <h3>왼쪽 목록에서 문서를 선택하세요</h3>
+        <p>선택한 문서의 Markdown 변환 결과, 원본 소스, 추출된 필드를 이곳에서 확인합니다.</p>
+      </div>`;
+    return;
+  }
+
+  actions.forEach((s) => ($(s).disabled = false));
+  $("#starBtn").setAttribute("aria-pressed", String(d.star));
+  $("#starBtn").style.color = d.star ? "var(--warn-text)" : "";
+  const folder = FOLDERS.find((f) => f.id === d.folder);
+  crumbs.innerHTML = `
+    <span class="seg">${esc(folder ? folder.name : "문서")}</span>
+    <span class="sep" aria-hidden="true">›</span>
+    <span class="cur">${esc(d.name)}</span>`;
+  $("#fieldCount").textContent = d.fields.length ? d.fields.length : "";
+
+  const usable = d.status === "done";
+  $("#copyBtn").disabled = !usable;
+  $("#exportBtn").disabled = !usable;
+
+  if (d.dirty && usable) {
+    dirtyBar.innerHTML = `
+      <div class="dirty">
+        ${icon("i-alert", "icon icon-sm")}
+        <span>추출 옵션이 변경되었습니다. 결과에 반영하려면 재변환하세요.</span>
+        <button class="btn-mini" id="dirtyRun">재변환</button>
+      </div>`;
+    $("#dirtyRun").addEventListener("click", () => startConvert(d));
+  }
+
+  if (d.status === "failed") { panel.innerHTML = failView(d); bindFail(d); return; }
+  if (d.status === "run")    { panel.innerHTML = runView(d); return; }
+  if (d.status === "queued") { panel.innerHTML = queuedView(d); bindQueued(d); return; }
+
+  if (state.tab === "source") {
+    panel.innerHTML = `<div class="source"><pre>${highlightMd(d.md)}</pre></div>`;
+  } else if (state.tab === "fields") {
+    panel.innerHTML = fieldsView(d);
+  } else {
+    const { fm, body } = splitFrontmatter(d.md);
+    panel.innerHTML = `<div class="reading"><div class="reading-inner">
+      ${fm ? `<div class="fm">${fm.map(([k, v]) =>
+        `<span class="kv"><b>${esc(k)}</b><span>${esc(v)}</span></span>`).join("")}</div>` : ""}
+      ${renderMd(body)}
+    </div></div>`;
+  }
+  $("#panelScroll").scrollTop = 0;
+}
+
+function fieldsView(d) {
+  if (!d.fields.length) {
+    return `<div class="empty" style="padding:72px 28px">
+      <span class="ring">${icon("i-table", "icon")}</span>
+      <h3>추출된 필드가 없습니다</h3>
+      <p>변환이 완료되면 문서에서 인식한 메타데이터와 구조 정보가 여기에 표로 정리됩니다.</p></div>`;
+  }
+  return `<div class="fields">
+    <h3>추출 필드 ${d.fields.length}개</h3>
+    <p class="hint">문서 구조와 본문에서 자동 인식한 값입니다. 신뢰도는 파서가 계산한 추정치이며, 낮은 값은 검수를 권장합니다.</p>
+    <table class="ftable"><tbody>
+      ${d.fields.map(([k, v, c]) => `<tr>
+        <th scope="row">${esc(k)}</th>
+        <td>${esc(v)}<span class="conf"><i><b style="width:${c}%"></b></i><span class="od-nowrap">${c}%</span></span></td>
+      </tr>`).join("")}
+    </tbody></table>
+  </div>`;
+}
+
+function runView(d) {
+  return `<div class="empty" style="padding:80px 28px">
+    <span class="ring" style="color:var(--accent);background:var(--accent-bg)">${icon("i-loader", "icon")}</span>
+    <h3>변환 중 · ${d.progress}%</h3>
+    <p>${esc(d.snippet)}</p>
+    <div style="width:min(320px,80%)" class="bar"><i style="width:${d.progress}%"></i></div>
+    <div class="skel" style="width:min(520px,90%);border:0;padding:20px 0 0">
+      <span style="width:72%"></span><span style="width:100%"></span><span style="width:88%"></span><span style="width:94%"></span>
+    </div>
+  </div>`;
+}
+
+function queuedView(d) {
+  return `<div class="empty" style="padding:88px 28px">
+    <span class="ring">${icon("i-clock", "icon")}</span>
+    <h3>변환 대기 중</h3>
+    <p>${esc(d.snippet)} 앞선 문서가 끝나면 자동으로 시작합니다.</p>
+    <button class="btn primary" id="runNow">지금 변환 시작</button>
+  </div>`;
+}
+function bindQueued(d) {
+  const b = $("#runNow");
+  if (b) b.addEventListener("click", () => startConvert(d));
+}
+
+function failView(d) {
+  const e = d.error;
+  return `<div class="failbox">
+    <h3>${icon("i-alert", "icon icon-sm")}<span>${esc(e.title)}</span></h3>
+    <p>${esc(e.why)}</p>
+    <dl>${e.detail.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    <p style="font-weight:500">해결 방법</p>
+    <p>${esc(e.fix)}</p>
+    <div class="od-cluster" style="margin-top:16px">
+      <button class="btn primary" id="retryBtn">${icon("i-refresh", "icon icon-sm")}<span>OCR을 켜고 재시도</span></button>
+      <button class="btn" id="retryPlain">그대로 재시도</button>
+    </div>
+  </div>`;
+}
+function bindFail(d) {
+  const a = $("#retryBtn"), b = $("#retryPlain");
+  if (a) a.addEventListener("click", () => { d.opts.ocr = true; renderInspector(); startConvert(d, true); });
+  if (b) b.addEventListener("click", () => startConvert(d));
+}
+
+/* ============================================================
+   인스펙터
+   ============================================================ */
+function renderInspector() {
+  const d = getDoc(state.selected);
+  const body = $("#inspBody");
+  if (!d) {
+    body.innerHTML = `<div class="empty" style="padding:56px 8px">
+      <span class="ring">${icon("i-gear", "icon")}</span>
+      <h3>선택된 문서 없음</h3>
+      <p>문서를 선택하면 메타데이터와 추출 옵션이 표시됩니다.</p></div>`;
+    return;
+  }
+  const o = d.opts;
+  const unit = d.kind === "pptx" ? "슬라이드" : d.kind === "xlsx" ? "시트" : "쪽";
+  body.innerHTML = `
+    <div class="insp-sec">
+      <h3>문서</h3>
+      <div class="od-row" style="--od-gap:10px;margin-bottom:12px">
+        <span class="fmt lg ${d.kind} od-fixed" aria-hidden="true">${KIND[d.kind]}</span>
+        <span class="od-fill od-truncate" style="font-size:13px;font-weight:600" title="${esc(d.name)}">${esc(d.name)}</span>
+      </div>
+      <dl class="meta">
+        <div><dt>상태</dt><dd>${statusChip(d)}</dd></div>
+        <div><dt>분량</dt><dd>${d.pages ? nf(d.pages) + unit : "—"}</dd></div>
+        <div><dt>용량</dt><dd>${esc(d.size)}</dd></div>
+        <div><dt>추가</dt><dd>${esc(d.created)}</dd></div>
+        <div><dt>처리 시간</dt><dd>${esc(d.elapsed)}</dd></div>
+        <div><dt>토큰 수</dt><dd>${d.tokens ? nf(d.tokens) : "—"}</dd></div>
+        <div><dt>표 / 이미지</dt><dd>${d.tablesFound} / ${d.imagesFound}</dd></div>
+        <div><dt>엔진</dt><dd>${esc(d.engine)}</dd></div>
+      </dl>
+    </div>
+
+    <div class="insp-sec">
+      <h3>추출 옵션</h3>
+      <div class="switchrow">
+        <span class="txt"><b>OCR 사용</b><span>텍스트 레이어가 없는 스캔 문서를 이미지에서 인식</span></span>
+        <button class="sw" role="switch" data-opt="ocr" aria-checked="${o.ocr}" aria-label="OCR 사용"></button>
+      </div>
+      <div class="switchrow" style="margin-bottom:12px">
+        <span class="txt"><b>머리글·바닥글 제거</b><span>반복되는 페이지 번호와 머리글을 본문에서 제외</span></span>
+        <button class="sw" role="switch" data-opt="strip" aria-checked="${o.strip}" aria-label="머리글 바닥글 제거"></button>
+      </div>
+      <div class="opt">
+        <label for="optTables">표 추출 방식</label>
+        <select id="optTables" data-opt="tables">
+          <option value="markdown" ${o.tables === "markdown" ? "selected" : ""}>Markdown 표</option>
+          <option value="html" ${o.tables === "html" ? "selected" : ""}>HTML 표 (병합 셀 보존)</option>
+          <option value="csv" ${o.tables === "csv" ? "selected" : ""}>CSV 블록</option>
+        </select>
+        <span class="desc">병합 셀이 많은 문서는 HTML 표가 구조를 더 정확히 보존합니다.</span>
+      </div>
+      <div class="opt">
+        <label for="optImages">이미지 처리</label>
+        <select id="optImages" data-opt="images">
+          <option value="reference" ${o.images === "reference" ? "selected" : ""}>상대 경로로 참조</option>
+          <option value="caption" ${o.images === "caption" ? "selected" : ""}>캡션만 남기기</option>
+          <option value="skip" ${o.images === "skip" ? "selected" : ""}>제외</option>
+        </select>
+      </div>
+      <div class="rangerow">
+        <span class="top"><b>청크 크기</b><output id="chunkOut">${o.chunk} 토큰</output></span>
+        <input type="range" id="optChunk" data-opt="chunk" min="200" max="2000" step="100" value="${o.chunk}" aria-label="청크 크기 (토큰)">
+        <span class="desc">표와 코드 블록은 청크 경계에서 분할하지 않습니다.</span>
+      </div>
+      <button class="btn block" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 설정으로 재변환</span></button>
+    </div>
+
+    <div class="insp-sec">
+      <h3>내보내기</h3>
+      <div class="od-stack" style="--od-gap:8px">
+        <button class="btn block primary" id="inspExport" ${d.status === "done" ? "" : "disabled"}>
+          ${icon("i-down", "icon icon-sm")}<span>Markdown 내보내기</span></button>
+        <button class="btn block" id="inspCopy" ${d.status === "done" ? "" : "disabled"}>
+          ${icon("i-copy", "icon icon-sm")}<span>클립보드에 복사</span></button>
+      </div>
+    </div>`;
+
+  body.addEventListener("change", onOptChange);
+  $("#optChunk").addEventListener("input", (e) => { $("#chunkOut").textContent = e.target.value + " 토큰"; });
+  $$(".sw", body).forEach((sw) => sw.addEventListener("click", () => {
+    const on = sw.getAttribute("aria-checked") !== "true";
+    sw.setAttribute("aria-checked", String(on));
+    d.opts[sw.dataset.opt] = on;
+    markDirty(d);
+  }));
+  $("#inspReconvert").addEventListener("click", () => startConvert(d));
+  $("#inspExport").addEventListener("click", openExport);
+  $("#inspCopy").addEventListener("click", () => copyMd(d));
+}
+
+function onOptChange(e) {
+  const t = e.target;
+  if (!t.dataset.opt) return;
+  const d = getDoc(state.selected);
+  if (!d) return;
+  d.opts[t.dataset.opt] = t.type === "range" ? Number(t.value) : t.value;
+  markDirty(d);
+}
+function markDirty(d) {
+  if (d.status !== "done") return;
+  d.dirty = true;
+  renderViewer();
+}
+
+/* ============================================================
+   변환 시뮬레이션
+   ============================================================ */
+const timers = new Map();
+
+function startConvert(d, forceSuccess) {
+  if (timers.has(d.id)) return;
+  d.status = "run"; d.progress = 0; d.dirty = false; d.time = "변환 중"; d.elapsed = "—";
+  if (forceSuccess && d.error) {
+    d.error = null;
+    d.pages = 12; d.tablesFound = 3; d.imagesFound = 12;
+    d.snippet = "OCR로 이미지에서 텍스트를 인식했습니다. 인보이스 항목 표와 합계 행이 구조화되어 추출되었습니다.";
+    d.fields = [
+      ["문서 종류", "세금계산서 / 인보이스 (OCR 인식)", 88],
+      ["인식 방식", "OCR · 한국어 + 영어", 99],
+      ["항목 행", "34행", 84],
+      ["합계 금액", "문서에 표기된 값 그대로 보존", 91],
+      ["저신뢰 셀", "6개 — 검수 권장", 100]
+    ];
+    d.md = `---
+title: 스캔 인보이스 (2026-08)
+extraction: OCR
+confidence: medium
+source: scanned_invoice_2026-08.pdf
+---
+
+# 스캔 인보이스 (2026년 8월)
+
+> OCR로 인식한 결과입니다. 아래 표에는 신뢰도가 낮은 셀이 6개 포함되어 있어 원본과 대조 검수를 권장합니다.
+
+## 인보이스 정보
+
+| 항목 | 값 |
+| --- | --- |
+| 발행일 | 2026-08-28 |
+| 인보이스 번호 | INV-2026-0831 |
+| 통화 | KRW |
+
+## 항목
+
+| 번호 | 품목 | 수량 | 단가 | 금액 |
+| --- | --- | --- | --- | --- |
+| 1 | 클라우드 사용료 (8월) | 1 | 1,840,000 | 1,840,000 |
+| 2 | 추가 스토리지 500GB | 1 | 120,000 | 120,000 |
+| 3 | 기술 지원 (표준) | 1 | 350,000 | 350,000 |
+
+## 비고
+
+원본 하단의 직인 이미지는 \`images/seal-1.png\` 로 분리 저장되었습니다.`;
+  }
+  render();
+  updateStatusBar();
+
+  const t = setInterval(() => {
+    d.progress = Math.min(100, d.progress + 6 + Math.random() * 10);
+    if (d.progress >= 100) {
+      clearInterval(t); timers.delete(d.id);
+      d.status = "done"; d.progress = 100; d.time = "방금 전";
+      d.elapsed = (1.2 + Math.random() * 6).toFixed(1) + "초";
+      if (!d.tokens) d.tokens = Math.round(600 + Math.random() * 6000);
+      toast("ok", d.name, "변환 완료 · " + nf(d.tokens) + " 토큰");
+      startNextQueued();
+    }
+    render();
+    updateStatusBar();
+  }, 420);
+  timers.set(d.id, t);
+}
+
+function startNextQueued() {
+  if (timers.size) return;
+  const next = DOCS.find((d) => d.status === "queued");
+  if (next) startConvert(next);
+}
+
+function enqueueNext() {
+  const src = POOL[poolIndex % POOL.length];
+  poolIndex++;
+  const d = doc(Object.assign({}, src, {
+    status: "queued", progress: 0, time: "대기 중",
+    created: "방금 전", elapsed: "—", tokens: 0,
+    fields: src.fields.map((f) => f.slice())
+  }));
+  DOCS.unshift(d);
+  state.selected = d.id;
+  state.view = "queue"; state.status = "all";
+  render();
+  toast("ok", d.name, "변환 큐에 추가됨");
+  startNextQueued();
+}
+
+/* ============================================================
+   상태바
+   ============================================================ */
+function updateStatusBar() {
+  const c = counts();
+  const running = byStatus("run").length;
+  const pending = byStatus("queued").length;
+  $("#sbQueue").textContent = running || pending
+    ? `변환 ${running}건 진행 · 대기 ${pending}건`
+    : `큐 대기 없음 · 완료 ${c.done}건`;
+  $("#sbDot").className = "dot" + (running ? " run" : "");
+  const d = getDoc(state.selected);
+  $("#sbTokens").textContent = d && d.tokens ? nf(d.tokens) + " 토큰" : "";
+  $("#sbEngine").textContent = d ? "엔진 · " + d.engine : "엔진 · 레이아웃 분석 v2";
+  const f = d && FOLDERS.find((x) => x.id === d.folder);
+  $("#sbWatchText").textContent = f ? f.name : FOLDERS[0].name;
+}
+
+/* ============================================================
+   토스트
+   ============================================================ */
+function toast(kind, title, sub) {
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.innerHTML = `${icon(kind === "ok" ? "i-check" : "i-alert", "icon")}
+    <span class="od-fill"><b class="od-truncate">${esc(title)}</b>${sub ? `<span class="sub2">${esc(sub)}</span>` : ""}</span>`;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+/* ============================================================
+   렌더 파이프라인
+   ============================================================ */
+function render() {
+  renderNav();
+  renderList();
+  renderViewer();
+  renderInspector();
+  updateStatusBar();
+}
+
+function select(id, focusPane) {
+  state.selected = id;
+  const d = getDoc(id);
+  if (d && d.status !== "done" && state.tab !== "render") setTab("render", true);
+  if (window.matchMedia("(max-width: 768px)").matches && focusPane) app.dataset.pane = "viewer";
+  render();
+}
+
+function setTab(tab, silent) {
+  state.tab = tab;
+  $$(".tab").forEach((t) => {
+    const on = t.dataset.tab === tab;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+  });
+  $("#panel").setAttribute("aria-labelledby", "tab-" + tab);
+  if (!silent) renderViewer();
+}
+
+/* ============================================================
+   이벤트 바인딩
+   ============================================================ */
+$("#nav").addEventListener("click", (e) => {
+  const head = e.target.closest(".nav-head");
+  if (head) {
+    collapsed[head.dataset.group] = head.getAttribute("aria-expanded") === "true";
+    renderNav();
+    return;
+  }
+  const it = e.target.closest(".nav-item");
+  if (!it) return;
+  state.view = it.dataset.view;
+  state.status = "all";
+  syncChips();
+  if (window.matchMedia("(max-width: 768px)").matches) app.dataset.pane = "list";
+  app.dataset.sidebar = "closed";
+  $("#navToggle").setAttribute("aria-expanded", "false");
+  render();
+});
+
+$("#docList").addEventListener("click", (e) => {
+  const b = e.target.closest(".doc");
+  if (b) select(b.dataset.id, true);
+});
+
+$("#docList").addEventListener("keydown", (e) => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "].includes(e.key)) return;
+  const list = visibleDocs();
+  if (!list.length) return;
+  let i = list.findIndex((d) => d.id === state.selected);
+  if (e.key === "Enter" || e.key === " ") {
+    if (i >= 0) { e.preventDefault(); select(list[i].id, true); }
+    return;
+  }
+  e.preventDefault();
+  if (e.key === "Home") i = 0;
+  else if (e.key === "End") i = list.length - 1;
+  else if (e.key === "ArrowDown") i = i < 0 ? 0 : Math.min(list.length - 1, i + 1);
+  else i = i < 0 ? 0 : Math.max(0, i - 1);
+  select(list[i].id, false);
+  const el = $(`.doc[data-id="${list[i].id}"]`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+});
+
+$$(".chip").forEach((c) => c.addEventListener("click", () => {
+  state.status = c.dataset.status; syncChips(); renderList();
+}));
+
+const searchInput = $("#listSearch");
+searchInput.addEventListener("input", () => {
+  state.query = searchInput.value;
+  $("#clearSearch").hidden = !state.query;
+  renderList();
+});
+$("#clearSearch").addEventListener("click", () => {
+  searchInput.value = ""; state.query = ""; $("#clearSearch").hidden = true; renderList(); searchInput.focus();
+});
+
+const SORTS = [["modified", "수정일 기준 정렬"], ["name", "이름 기준 정렬"], ["size", "용량 기준 정렬"]];
+$("#sortBtn").addEventListener("click", () => {
+  const i = SORTS.findIndex((s) => s[0] === state.sort);
+  const next = SORTS[(i + 1) % SORTS.length];
+  state.sort = next[0];
+  $("#sortBtn").title = next[1];
+  toast("ok", next[1], "목록 순서가 변경되었습니다");
+  renderList();
+});
+
+$("#addFile").addEventListener("click", enqueueNext);
+$("#addWatch").addEventListener("click", () => toast("ok", "감시 폴더", "프로토타입에서는 폴더 선택 대화상자가 열리지 않습니다"));
+
+$$(".tab").forEach((t) => {
+  t.addEventListener("click", () => setTab(t.dataset.tab));
+  t.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const tabs = $$(".tab");
+    let i = tabs.indexOf(t) + (e.key === "ArrowRight" ? 1 : -1);
+    i = (i + tabs.length) % tabs.length;
+    tabs[i].focus(); setTab(tabs[i].dataset.tab);
+  });
+});
+
+$("#starBtn").addEventListener("click", () => {
+  const d = getDoc(state.selected); if (!d) return;
+  d.star = !d.star; render();
+  toast("ok", d.name, d.star ? "즐겨찾기에 추가" : "즐겨찾기에서 제거");
+});
+$("#reconvertBtn").addEventListener("click", () => { const d = getDoc(state.selected); if (d) startConvert(d); });
+$("#copyBtn").addEventListener("click", () => { const d = getDoc(state.selected); if (d) copyMd(d); });
+$("#exportBtn").addEventListener("click", openExport);
+$("#moreBtn").addEventListener("click", () => toast("ok", "추가 명령", "Ctrl+K 팔레트에서 모든 명령을 실행할 수 있습니다"));
+$("#deleteBtn").addEventListener("click", () => {
+  const d = getDoc(state.selected); if (!d) return;
+  const i = DOCS.indexOf(d);
+  if (timers.has(d.id)) { clearInterval(timers.get(d.id)); timers.delete(d.id); }
+  DOCS.splice(i, 1);
+  const next = visibleDocs()[0];
+  state.selected = next ? next.id : null;
+  render();
+  toast("ok", d.name, "큐에서 제거되었습니다");
+});
+
+function copyMd(d) {
+  const write = navigator.clipboard && navigator.clipboard.writeText
+    ? navigator.clipboard.writeText(d.md)
+    : Promise.reject();
+  write.then(
+    () => toast("ok", "클립보드에 복사됨", d.name + " · " + nf(d.md.length) + "자"),
+    () => toast("err", "복사하지 못했습니다", "브라우저가 클립보드 접근을 차단했습니다")
+  );
+}
+
+/* --- 패널 토글 (좁은 창) --- */
+$("#navToggle").addEventListener("click", () => {
+  const open = app.dataset.sidebar !== "open";
+  app.dataset.sidebar = open ? "open" : "closed";
+  $("#navToggle").setAttribute("aria-expanded", String(open));
+});
+$("#inspectorOpen").addEventListener("click", () => { app.dataset.inspector = "open"; $("#inspClose").focus(); });
+$("#inspClose").addEventListener("click", () => { app.dataset.inspector = "closed"; $("#inspectorOpen").focus(); });
+$("#scrim").addEventListener("click", () => { app.dataset.sidebar = "closed"; app.dataset.inspector = "closed"; $("#navToggle").setAttribute("aria-expanded", "false"); });
+$("#backToList").addEventListener("click", () => { app.dataset.pane = "list"; });
+
+/* --- 테마 --- */
+$("#themeToggle").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme !== "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  $("#themeToggle").setAttribute("aria-pressed", String(dark));
+  $("#themeIcon").innerHTML = `<use href="#${dark ? "i-sun" : "i-moon"}"/>`;
+  $("#themeLabel").textContent = dark ? "라이트 모드" : "다크 모드";
+});
+
+/* --- 상태바 --- */
+const ZOOMS = ["90%", "100%", "110%", "125%"];
+$("#sbZoom").addEventListener("click", () => {
+  const b = $("#sbZoom");
+  b.textContent = ZOOMS[(ZOOMS.indexOf(b.textContent) + 1) % ZOOMS.length];
+});
+$("#sbWatch").addEventListener("click", () => {
+  state.view = "folder:" + (getDoc(state.selected) || { folder: "inbox" }).folder;
+  render();
+});
+
+/* ============================================================
+   내보내기 다이얼로그
+   ============================================================ */
+const exportOverlay = $("#exportOverlay");
+let lastFocus = null;
+
+function openExport() {
+  const d = getDoc(state.selected);
+  if (!d || d.status !== "done") return;
+  lastFocus = document.activeElement;
+  $("#exportSub").textContent = `${d.name} · ${nf(d.tokens)} 토큰 · 표 ${d.tablesFound}개`;
+  exportOverlay.hidden = false;
+  $("#exportForm").querySelector('input[name="fmt"]').focus();
+}
+function closeExport() {
+  exportOverlay.hidden = true;
+  if (lastFocus) lastFocus.focus();
+}
+$$("[data-close]", exportOverlay).forEach((b) => b.addEventListener("click", closeExport));
+exportOverlay.addEventListener("mousedown", (e) => { if (e.target === exportOverlay) closeExport(); });
+$("#exportForm").addEventListener("change", () => {
+  const clip = $("#exportForm").querySelector('input[name="fmt"]:checked').value === "clip";
+  $("#pathRow").hidden = clip;
+});
+$("#exportForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const d = getDoc(state.selected);
+  const fmt = $("#exportForm").querySelector('input[name="fmt"]:checked').value;
+  closeExport();
+  if (fmt === "clip") { copyMd(d); return; }
+  const ext = fmt === "md" ? ".md" : ".jsonl";
+  const base = d.name.replace(/\.[^.]+$/, "") + ext;
+  toast("ok", base, $("#exportPath").value + "\\" + base + " 에 저장됨");
+});
+
+/* ============================================================
+   커맨드 팔레트
+   ============================================================ */
+const paletteOverlay = $("#paletteOverlay");
+const paletteInput = $("#paletteInput");
+let pActive = 0, pItems = [];
+
+const COMMANDS = [
+  { t: "파일 추가 및 변환 시작", s: "Ctrl+N", run: enqueueNext },
+  { t: "선택한 문서 재변환", s: "Ctrl+R", run: () => { const d = getDoc(state.selected); if (d) startConvert(d); } },
+  { t: "Markdown 클립보드에 복사", s: "Ctrl+C", run: () => { const d = getDoc(state.selected); if (d && d.status === "done") copyMd(d); } },
+  { t: "Markdown 내보내기", s: "Ctrl+E", run: openExport },
+  { t: "렌더링 탭으로 이동", s: "", run: () => setTab("render") },
+  { t: "원본 Markdown 탭으로 이동", s: "", run: () => setTab("source") },
+  { t: "추출 필드 탭으로 이동", s: "", run: () => setTab("fields") },
+  { t: "변환 큐 보기", s: "", run: () => { state.view = "queue"; state.status = "all"; syncChips(); render(); } },
+  { t: "실패한 문서 보기", s: "", run: () => { state.view = "failed"; state.status = "all"; syncChips(); render(); } },
+  { t: "라이트 / 다크 모드 전환", s: "", run: () => $("#themeToggle").click() }
+];
+
+function openPalette() {
+  lastFocus = document.activeElement;
+  paletteOverlay.hidden = false;
+  paletteInput.value = "";
+  renderPalette("");
+  paletteInput.focus();
+}
+function closePalette() {
+  paletteOverlay.hidden = true;
+  if (lastFocus) lastFocus.focus();
+}
+function renderPalette(q) {
+  q = q.trim().toLowerCase();
+  const docs = DOCS.filter((d) => !q || d.name.toLowerCase().includes(q) || d.snippet.toLowerCase().includes(q)).slice(0, 6);
+  const cmds = COMMANDS.filter((c) => !q || c.t.toLowerCase().includes(q));
+  pItems = [
+    ...docs.map((d) => ({ kind: "doc", d, run: () => select(d.id, true) })),
+    ...cmds.map((c) => ({ kind: "cmd", c, run: c.run }))
+  ];
+  pActive = 0;
+  const list = $("#paletteList");
+  if (!pItems.length) {
+    list.innerHTML = `<div class="empty" style="padding:32px 20px">
+      <h3>결과가 없습니다</h3><p>다른 검색어를 입력하거나 명령 이름의 일부만 입력해 보세요.</p></div>`;
+    return;
+  }
+  let html = "";
+  if (docs.length) {
+    html += `<div class="palette-group">문서</div>` + docs.map((d, i) => `
+      <button class="pcmd" data-i="${i}" data-active="${i === 0}">
+        <span class="fmt ${d.kind}" aria-hidden="true">${KIND[d.kind]}</span>
+        <span class="t">${esc(d.name)}</span>
+        <span class="s">${STATUS[d.status].label}</span>
+      </button>`).join("");
+  }
+  if (cmds.length) {
+    html += `<div class="palette-group">명령</div>` + cmds.map((c, j) => {
+      const i = docs.length + j;
+      return `<button class="pcmd" data-i="${i}" data-active="${i === 0}">
+        ${icon("i-sparkle", "icon icon-sm")}<span class="t">${esc(c.t)}</span>
+        ${c.s ? `<span class="s">${esc(c.s)}</span>` : ""}
+      </button>`;
+    }).join("");
+  }
+  list.innerHTML = html;
+}
+function movePalette(dir) {
+  if (!pItems.length) return;
+  pActive = (pActive + dir + pItems.length) % pItems.length;
+  $$(".pcmd").forEach((b) => b.dataset.active = String(Number(b.dataset.i) === pActive));
+  const el = $(`.pcmd[data-i="${pActive}"]`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+function runPalette() {
+  const it = pItems[pActive];
+  if (!it) return;
+  closePalette();
+  it.run();
+}
+paletteInput.addEventListener("input", () => renderPalette(paletteInput.value));
+paletteInput.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); movePalette(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); movePalette(-1); }
+  else if (e.key === "Enter") { e.preventDefault(); runPalette(); }
+});
+$("#paletteList").addEventListener("click", (e) => {
+  const b = e.target.closest(".pcmd");
+  if (!b) return;
+  pActive = Number(b.dataset.i); runPalette();
+});
+paletteOverlay.addEventListener("mousedown", (e) => { if (e.target === paletteOverlay) closePalette(); });
+$("#paletteOpen").addEventListener("click", openPalette);
+
+/* ============================================================
+   전역 키보드
+   ============================================================ */
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (!paletteOverlay.hidden) { closePalette(); return; }
+    if (!exportOverlay.hidden) { closeExport(); return; }
+    if (app.dataset.sidebar === "open" || app.dataset.inspector === "open") {
+      app.dataset.sidebar = "closed"; app.dataset.inspector = "closed";
+      $("#navToggle").setAttribute("aria-expanded", "false");
+    }
+    return;
+  }
+  if (!e.ctrlKey && !e.metaKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "k") { e.preventDefault(); paletteOverlay.hidden ? openPalette() : closePalette(); }
+  else if (k === "n") { e.preventDefault(); enqueueNext(); }
+  else if (k === "r" && !e.shiftKey) { const d = getDoc(state.selected); if (d) { e.preventDefault(); startConvert(d); } }
+  else if (k === "e") { e.preventDefault(); openExport(); }
+  else if (k === "f") { e.preventDefault(); searchInput.focus(); searchInput.select(); }
+});
+
+/* ============================================================
+   드래그 앤 드롭
+   ============================================================ */
+const dropOverlay = $("#dropOverlay");
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  e.preventDefault(); dragDepth++; dropOverlay.hidden = false;
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dropOverlay.hidden = true;
+});
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; dropOverlay.hidden = true;
+  const n = e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files.length : 0;
+  const add = Math.max(1, Math.min(n || 1, 3));
+  for (let i = 0; i < add; i++) enqueueNext();
+});
+
+/* ============================================================
+   시작
+   ============================================================ */
+state.selected = DOCS[0].id;
+syncChips();
+setTab("render", true);
+render();
+const running = DOCS.find((d) => d.status === "run");
+if (running) { running.status = "queued"; startConvert(running); }
+})();
+</script>
+</body>
+</html>

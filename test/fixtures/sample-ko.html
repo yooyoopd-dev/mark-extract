@@ -1,0 +1,35 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 20mm; }
+body { font-family: "Noto Sans CJK KR", "NanumGothic", sans-serif; font-size: 11pt; line-height: 1.6; }
+h1 { font-size: 20pt; margin: 0 0 12pt; }
+h2 { font-size: 15pt; margin: 18pt 0 8pt; }
+h3 { font-size: 12pt; margin: 12pt 0 6pt; }
+table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+th, td { border: 1px solid #333; padding: 5pt 7pt; text-align: left; }
+th { background: #eee; }
+</style></head><body>
+<h1>문서 변환 시험 자료</h1>
+<p>이 문서는 Mark Extract의 PDF 어댑터를 시험하기 위해 만든 자료다. 한국어와 English가 섞여 있으며, 제목 계층과 표가 마크다운으로 어떻게 넘어오는지 확인한다.</p>
+
+<h2>1. 제목 계층</h2>
+<p>본문 문단이다. 레이아웃 분석이 제대로 되면 이 문단은 위 제목에 속한 것으로 읽힌다.</p>
+
+<h3>1.1 하위 절</h3>
+<p>세 번째 수준의 제목 아래 문단. Mixed content with English words like conversion, adapter, and markdown.</p>
+
+<h2>2. 표</h2>
+<p>아래 표는 셀 구조가 보존되는지 본다.</p>
+<table>
+<thead><tr><th>형식</th><th>엔진</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>PDF</td><td>opendataloader-pdf</td><td>레이아웃 분석</td></tr>
+<tr><td>DOCX</td><td>kordoc</td><td>순수 JS 경로</td></tr>
+<tr><td>PPTX</td><td>자체 구현</td><td>markitdown 규칙</td></tr>
+</tbody></table>
+
+<h2>3. 목록</h2>
+<ul><li>첫 번째 항목</li><li>두 번째 항목 — 특수문자 · — " " 포함</li><li>세 번째 항목</li></ul>
+
+<h2>4. 숫자와 기호</h2>
+<p>금액 1,234,567원 · 비율 45.6% · 날짜 2026-09-16 · 괄호 (참고) · 따옴표 "인용"</p>
+</body></html>

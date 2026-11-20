@@ -1,0 +1,178 @@
+/**
+ * 변환 옵션 패널 (원본의 인스펙터). design/index.html 의 renderInspector 를 옮기되
+ * 설계 문서가 정한 개편을 반영한다 (docs/design/04-ui-spec.md).
+ *
+ *   원본 ocr 토글        → hybrid 서버 연결 시에만 활성 (7단계)
+ *   엔진 선택 추가       → 로컬 / LLM (6단계)
+ *   chunk 슬라이더 제거  → 출력이 Markdown 전용이라 RAG 청킹이 할 일이 없다
+ *
+ * 표·이미지 선택지는 실제 어댑터 옵션(--table-method, --image-output)에 맞춘다.
+ * 원본의 선택지는 시제품이라 없는 값을 담고 있었다.
+ */
+import { esc, icon } from "../markdown.js";
+import { effectiveOptions, state, type Doc, type DocOptions } from "../state.js";
+import type { Provider } from "../../shared/parse";
+
+const sel = (value: string, want: string): string => (value === want ? " selected" : "");
+
+const PROVIDERS: ReadonlyArray<[Provider, string]> = [
+  ["claude", "Claude Code"],
+  ["gemini", "Gemini CLI"],
+  ["codex", "Codex CLI"],
+  ["ollama", "Ollama (로컬 모델)"],
+];
+
+/**
+ * LLM 엔진을 골랐을 때만 나오는 칸.
+ *
+ * 모델은 자유 입력이다 — CLI 버전마다 받는 이름이 달라 목록을 앱에 박으면 금방
+ * 낡는다. Ollama 모델 드롭다운은 설정 화면(6b)에서 /api/tags 로 채운다.
+ */
+function llmOptions(options: DocOptions): string {
+  const provider = options.provider ?? "claude";
+  const mode = options.inputMode ?? "B";
+  // Ollama 는 파일 읽기 도구가 없어 모드 A 를 할 수 없다.
+  const modeA = provider !== "ollama";
+
+  return `
+    <div class="opt">
+      <label for="optProvider">프로바이더</label>
+      <select id="optProvider" data-opt="provider">
+        ${PROVIDERS.map(([id, label]) => `<option value="${id}"${sel(provider, id)}>${esc(label)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="opt">
+      <label for="optModel">모델</label>
+      <input id="optModel" type="text" data-opt="model" value="${esc(options.model ?? "")}"
+             placeholder="${provider === "ollama" ? "예: qwen2.5:7b (필수)" : "비우면 CLI 기본값"}">
+      <span class="desc">${
+        provider === "ollama"
+          ? "Ollama 는 모델 이름이 필요합니다. 설치된 모델 이름을 그대로 적으세요."
+          : "CLI 가 받는 모델 이름을 그대로 적습니다. 비우면 CLI 기본값을 씁니다."
+      }</span>
+    </div>
+    <div class="opt">
+      <label for="optMode">입력 모드</label>
+      <select id="optMode" data-opt="inputMode">
+        <option value="B"${sel(mode, "B")}>B — 로컬 파싱 후 재가공</option>
+        <option value="A"${sel(mode, "A")}${modeA ? "" : " disabled"}>A — CLI 가 파일을 직접 읽음</option>
+      </select>
+      <span class="desc">${
+        !modeA
+          ? "Ollama 는 파일 읽기 도구가 없어 모드 A 를 쓸 수 없습니다."
+          : mode === "A"
+            ? "변환할 파일 1개만 임시 폴더에 복사해 전달하며, 읽기 도구만 허용합니다. 원본 파일의 실제 경로는 전달되지 않습니다."
+            : "로컬 파서가 뽑은 Markdown 을 넘겨 구조를 다듬게 합니다. 모든 프로바이더·모든 형식에서 동작합니다."
+      }</span>
+    </div>`;
+}
+
+/** PDF 에만 걸리는 것들 (opendataloader 인자). 다른 형식에서는 아예 그리지 않는다. */
+function pdfOptions(options: DocOptions): string {
+  // 스위치는 "제거한다"이고 옵션은 "포함한다"라 서로 반대다.
+  const strip = options.includeHeaderFooter !== true;
+
+  // OCR 은 서버 상태와 무관하게 켤 수 있다 (build.37). 켜고 재변환하면 main 이 서버를
+  // 띄우고 준비될 때까지 기다린다. 전에는 연결 테스트를 통과해야 풀리는 자물쇠였다.
+  const ocr = options.ocr === true;
+  const structTree = options.useStructTree === true;
+  // 실측: 태그드 PDF 에 둘 다 주면 CLI 가 구조 트리를 쓰고 서버를 부르지 않는다.
+  const shadowed = ocr && structTree;
+
+  return `
+    <div class="insp-sec">
+      <h3>PDF</h3>
+      <div class="switchrow">
+        <span class="txt"><b>OCR 사용</b><span>스캔한 쪽의 글자를 그림에서 읽습니다. ${
+          state.ocr.phase === "on"
+            ? "OCR 서버가 켜져 있습니다."
+            : "OCR 서버가 꺼져 있으면 재변환할 때 자동으로 켭니다."
+        }</span></span>
+        <button class="sw" role="switch" data-opt="ocr" aria-checked="${ocr}" aria-label="OCR 사용"></button>
+      </div>
+      ${
+        ocr
+          ? `<div class="switchrow">
+               <span class="txt"><b>모든 페이지 보내기</b><span>기본은 서버에 보낼 페이지를 골라 냅니다. 스캔 페이지를 놓쳤다면 전수를 보냅니다 — 느려집니다.</span></span>
+               <button class="sw" role="switch" data-opt="hybridFullPages" aria-checked="${
+                 options.hybridFullPages === true
+               }" aria-label="모든 페이지 보내기"></button>
+             </div>`
+          : ""
+      }
+      <div class="switchrow">
+        <span class="txt"><b>구조 트리 사용</b><span>태그드 PDF 의 구조로 읽기 순서를 잡습니다. 태그 품질에 따라 결과가 갈립니다.</span></span>
+        <button class="sw" role="switch" data-opt="useStructTree" aria-checked="${structTree}" aria-label="구조 트리 사용"></button>
+      </div>
+      ${
+        shadowed
+          ? `<p class="insp-note">
+               ${icon("i-alert", "icon icon-sm")}
+               태그드 PDF 에서는 <b>구조 트리가 이깁니다.</b> 둘 다 켜면 OCR 서버는 호출되지 않습니다.
+             </p>`
+          : ""
+      }
+      <div class="switchrow insp-switch-last">
+        <span class="txt"><b>머리글·바닥글 제거</b><span>반복되는 페이지 번호와 머리글을 본문에서 제외</span></span>
+        <button class="sw" role="switch" data-opt="strip" aria-checked="${strip}" aria-label="머리글 바닥글 제거"></button>
+      </div>
+      <div class="opt">
+        <label for="optTables">표 감지 방식</label>
+        <select id="optTables" data-opt="tableMethod">
+          <option value="default"${sel(options.tableMethod ?? "default", "default")}>테두리 기반</option>
+          <option value="cluster"${sel(options.tableMethod ?? "default", "cluster")}>테두리 + 군집</option>
+        </select>
+        <span class="desc">테두리가 없는 표가 많은 문서는 군집 방식이 더 잘 잡습니다.</span>
+      </div>
+    </div>`;
+}
+
+/**
+ * build.36 에서 줄였다. 전에는 문서 메타데이터(상태·용량·처리 시간·엔진)와 내보내기
+ * 버튼이 함께 있었는데, 앞의 것은 목록 카드와 변환 로그 탭에, 뒤의 것은 뷰어
+ * 머리에 이미 있었다. 이 패널은 **재변환에 쓰는 옵션**만 갖는다. PDF 전용 옵션은
+ * 다른 형식에서 잠가 두던 것을 아예 그리지 않는다.
+ */
+export function renderInspector(host: HTMLElement, doc: Doc | null): void {
+  if (!doc) {
+    host.innerHTML = `<p class="insp-empty">문서를 고르면 변환 옵션이 여기 나옵니다.</p>`;
+    return;
+  }
+
+  const options = effectiveOptions(doc);
+  const engine = options.engine ?? "local";
+
+  host.innerHTML = `
+    <div class="insp-sec">
+      <h3>엔진</h3>
+      <div class="opt">
+        <label for="optEngine">처리 방식</label>
+        <select id="optEngine" data-opt="engine">
+          <option value="local"${sel(engine, "local")}>로컬 엔진</option>
+          <option value="llm"${sel(engine, "llm")}>LLM 엔진</option>
+        </select>
+        <span class="desc">${
+          engine === "llm"
+            ? "LLM 엔진의 결과는 재현되지 않습니다. 같은 문서를 다시 변환하면 달라질 수 있습니다."
+            : "로컬 엔진은 같은 문서에서 항상 같은 결과를 냅니다."
+        }</span>
+      </div>
+      ${engine === "llm" ? llmOptions(options) : ""}
+    </div>
+
+    ${doc.kind === "pdf" ? pdfOptions(options) : ""}
+
+    <div class="insp-sec">
+      <h3>그림</h3>
+      <div class="opt">
+        <label for="optImages">그림 처리</label>
+        <select id="optImages" data-opt="imageOutput">
+          <option value="note"${sel(options.imageOutput ?? "note", "note")}>위치만 표시</option>
+          <option value="off"${sel(options.imageOutput ?? "note", "off")}>제외</option>
+        </select>
+        <span class="desc">로컬 엔진은 그림 내용을 글자로 옮기지 못합니다. 못 읽은 자리에
+          <code>[그림 N]</code> 과 위치를 남깁니다.</span>
+      </div>
+      <button class="btn block primary" id="inspReconvert">${icon("i-refresh", "icon icon-sm")}<span>이 옵션으로 재변환</span></button>
+    </div>`;
+}

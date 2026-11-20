@@ -1,0 +1,8 @@
+# 생성 파일과 소스는 LF 로 고정한다. Windows 러너가 core.autocrlf=true 로
+# 체크아웃하면 tokens.css 가 CRLF 가 되어 토큰 대조가 줄 끝 차이로 실패한다.
+* text=auto eol=lf
+
+# 시험 자료는 절대 변환되면 안 된다.
+*.pdf binary
+*.png binary
+*.jar binary

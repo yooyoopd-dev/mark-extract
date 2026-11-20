@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // Electron 의 file:// 은 모듈 스크립트를 싣는다 (스모크로 확인). 일반 브라우저와
+    // 달라서 커스텀 프로토콜 없이 4단계의 다중 파일 구성으로 넘어갈 수 있다.
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": "src/renderer",
+    "outDir": "out/renderer"
+  },
+  "include": ["src/renderer", "src/shared"]
+}
