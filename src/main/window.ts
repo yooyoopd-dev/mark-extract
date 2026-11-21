@@ -3,7 +3,7 @@
  * (scripts/smoke-main.cjs) 가 같은 함수를 재사용하기 위해서다 — 프로덕션 진입점에
  * 테스트 분기를 넣지 않는다.
  */
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, dialog, shell } from "electron";
 import { join } from "node:path";
 
 /**
@@ -44,6 +44,30 @@ function createSplash(): BrowserWindow {
   return splash;
 }
 
+/** 렌더러가 알려 준 저장 안 한 md 문서 수 (build.38). 편집 내용은 렌더러에만 있다. */
+let unsaved = 0;
+export const setUnsaved = (n: number): void => {
+  unsaved = Math.max(0, Math.trunc(n));
+};
+
+/** 저장 안 한 문서가 있으면 닫기 전에 묻는다. 저장은 하지 않는다 — 앱 안에서 하고 닫는다. */
+function guardClose(win: BrowserWindow): void {
+  win.on("close", (event) => {
+    if (unsaved === 0) return;
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      buttons: ["취소", "저장하지 않고 닫기"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Mark Extract",
+      message: `저장하지 않은 Markdown 문서가 ${unsaved}개 있습니다.`,
+      detail: "닫으면 고친 내용이 사라집니다.",
+    });
+    if (choice === 0) event.preventDefault();
+    else unsaved = 0;
+  });
+}
+
 export function createMainWindow(): BrowserWindow {
   const splash = createSplash();
 
@@ -73,6 +97,8 @@ export function createMainWindow(): BrowserWindow {
     if (url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };
   });
+
+  guardClose(win);
 
   win.once("ready-to-show", () => {
     win.show();

@@ -57,7 +57,7 @@ jobs:
       - run: npm run jre
 
       # Electron 창을 띄우려면 디스플레이가 있어야 한다.
-      - name: 검증 (토큰 · 빌드 · 스모크 · 파서 · 큐 · LLM · 설정 · OCR)
+      - name: 검증 (토큰 · 빌드 · 스모크 · 파서 · 큐 · LLM · 설정 · OCR · Markdown)
         run: xvfb-run -a npm run verify
 
       - uses: actions/upload-artifact@v4
@@ -105,6 +105,11 @@ jobs:
       # 동봉 JRE 로 진짜 CLI 를 돌리는 단언이 들어 있다. Windows 에서도 봐야 한다.
       - name: OCR 검증 (Windows)
         run: npm run verify:ocr
+
+      # md 저장은 임시 파일을 같은 이름으로 바꿔 단다. Windows 의 rename 이 기존 파일을
+      # 덮는지, CRLF·BOM 이 그대로인지는 여기서만 본다 (build.38).
+      - name: Markdown 검증 (Windows)
+        run: npm run verify:md
 
       # 자기 압축 해제 exe 를 그만뒀다. electron-builder 는 dir 로만 만들고, 그
       # 폴더를 zip 으로 만다. 사용자는 한 번 풀고 그 안의 exe 를 그대로 쓴다.
@@ -371,8 +376,8 @@ jobs:
             echo
             echo "## 확인된 것"
             echo
-            echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 7종(PDF·DOCX·XLSX·XLS·PPTX·HTML·EML), OCR 서버 관리, 변환 큐·감시 폴더·내보내기"
-            echo "- Windows: 동봉 JRE 로 한글 시험 자료 7종(PDF·DOCX·XLSX·XLS·PPTX·EML 2) 변환, 패키징 배치, 패키징된 앱 자체 점검"
+            echo "- 리눅스: 토큰 대조, Electron 셸 스모크, 파서 7종(PDF·DOCX·XLSX·XLS·PPTX·HTML·EML), OCR 서버 관리, 변환 큐·감시 폴더·내보내기, Markdown 열기·편집·저장"
+            echo "- Windows: 동봉 JRE 로 한글 시험 자료 7종(PDF·DOCX·XLSX·XLS·PPTX·EML 2) 변환, Markdown 저장(CRLF·BOM 유지·바꿔 달기), 패키징 배치, 패키징된 앱 자체 점검"
             echo "- Windows: **배포하는 zip 을 실제로 풀어** PATH 에서 JDK 를 뺀 채 돌려 동봉 JRE 사용과 7종 변환 확인"
             echo
             echo "아직 확인되지 않은 것: 실제 OCR 인식 결과, gemini·codex 의 성공 응답 본문,"

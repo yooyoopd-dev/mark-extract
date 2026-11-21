@@ -55,6 +55,7 @@ console.log("  preload: window.markExtract 표면 확인 (목록·본문·추가
 console.log("  렌더러: 목록·뷰어·변환 옵션이 모두 그려짐, 콘솔 오류 없음");
 console.log("  변환: 시험 자료 7종(HTML·EML 포함)이 UI 를 통해 변환되어 목록에 완료로 표시됨");
 console.log("  OCR: 이미지 PDF 는 'OCR 필요' + [OCR 로 변환] 안내, 설정은 켜기 버튼 하나");
+console.log("  Markdown: md 열기·편집·Ctrl+S 저장(CRLF 유지)·● 표시, 다시 그려도 커서 유지, 새 문서");
 console.log("  스크롤: 뷰어가 넘치고 스크롤됨, 창은 뷰포트 안");
 console.log("  반응형: 1920·1440·1366·1024·700 에서 넘침 없음, 드로어·한 칸 전환 정상");
 console.log("  화면 정리: 사이드바·팔레트·상태바·즐겨찾기 없음, 설정 톱니, 옵션 패널 기본 닫힘");

@@ -1,6 +1,6 @@
 {
   "name": "mark-extract",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "문서를 Markdown으로만 변환하는 Windows 단일 실행 AI Document Parser",
   "main": "out/main/index.js",
@@ -18,7 +18,8 @@
     "verify:llm": "node scripts/verify-llm.mjs",
     "verify:settings": "node scripts/verify-settings.mjs",
     "verify:ocr": "node scripts/verify-ocr.mjs",
-    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings && npm run verify:ocr",
+    "verify:md": "node scripts/verify-md.mjs",
+    "verify": "npm run build && npm run smoke && npm run verify:parsers && npm run verify:queue && npm run verify:llm && npm run verify:settings && npm run verify:ocr && npm run verify:md",
     "dist:win": "electron-builder --win dir"
   },
   "devDependencies": {
@@ -33,6 +34,7 @@
     "@xmldom/xmldom": "^0.9.12",
     "jszip": "^3.10.2",
     "kordoc": "^4.14.0",
+    "markdown-it": "^14.3.2",
     "postal-mime": "^4.2.1",
     "turndown": "^7.2.5"
   }

@@ -15,10 +15,12 @@ import { providerOf } from "./llm/providers";
 import { listModels } from "./llm/ollama-http";
 import { promptText } from "./llm/prompt";
 import { selfTestReport } from "./self-test";
+import { renderMd } from "./md-render";
+import { setUnsaved } from "./window";
 import type { CliStatus, DocOptions, ExportRequest, Settings } from "../shared/doc";
 import type { Provider } from "../shared/parse";
 
-const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "htm", "eml"];
+const SUPPORTED = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "htm", "eml", "md", "markdown"];
 const PROVIDERS: readonly Provider[] = ["claude", "gemini", "codex", "ollama"];
 
 const windowOf = (event: Electron.IpcMainInvokeEvent): BrowserWindow | null =>
@@ -85,6 +87,25 @@ export function registerIpc(): void {
       ? { added: 0, skipped: 0, oversized: [], unsupported: [] }
       : queue.add(result.filePaths);
   });
+
+  /* Markdown 편집 (build.38) ----------------------------- */
+  ipcMain.handle("md:new", () => queue.newMd());
+  ipcMain.handle("md:render", (_e, text: unknown) => renderMd(typeof text === "string" ? text : ""));
+  ipcMain.handle("md:save", (_e, id: unknown, text: unknown, force: unknown) =>
+    queue.saveMd(String(id), String(text ?? ""), null, force === true),
+  );
+  ipcMain.handle("md:saveAs", async (event, id: unknown, text: unknown) => {
+    const doc = queue.list().find((d) => d.id === id);
+    const result = await dialog.showSaveDialog(windowOf(event)!, {
+      title: "다른 이름으로 저장",
+      defaultPath: doc?.path || doc?.name || "제목 없음.md",
+      filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    return queue.saveMd(String(id), String(text ?? ""), result.filePath, true);
+  });
+  /** 렌더러가 들고 있는 저장 안 한 문서 수. 창을 닫을 때 묻는다. */
+  ipcMain.handle("md:unsaved", (_e, n: unknown) => setUnsaved(typeof n === "number" ? n : 0));
 
   /* 내보내기 -------------------------------------------- */
   ipcMain.handle("export:pickDir", async (event) => {

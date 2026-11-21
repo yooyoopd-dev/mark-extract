@@ -53,6 +53,9 @@
     </div>
     <div class="tb-drag"></div>
     <div class="tb-right">
+      <button class="tb-tool" id="newMd" title="새 Markdown 문서 (Ctrl+N)">
+        <svg class="icon icon-sm"><use href="#i-files"/></svg><span>새 문서</span>
+      </button>
       <button class="tb-tool" id="addFile">
         <svg class="icon icon-sm"><use href="#i-plus"/></svg><span>파일 추가</span>
       </button>
@@ -128,6 +131,14 @@
       <div class="od-scroll" id="panelScroll">
         <div id="dirtyBar"></div>
         <div id="panel" role="tabpanel" aria-labelledby="tab-render"><!-- JS --></div>
+      </div>
+
+      <!-- md 편집기 (build.38). 다시 그리는 #panel 밖에 고정으로 둔다 — 안에 두면 목록이
+           바뀔 때마다 커서와 실행 취소 기록이 날아간다 (views/editor.ts). -->
+      <div class="editor" id="editor" hidden>
+        <label class="sr" for="editText">Markdown 편집</label>
+        <textarea id="editText" spellcheck="false" autocomplete="off"></textarea>
+        <div class="edit-preview od-scroll" id="editPreview" aria-label="미리보기"></div>
       </div>
     </main>
 

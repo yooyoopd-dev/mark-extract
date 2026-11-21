@@ -41,7 +41,7 @@ function schedule(): void {
     void (async () => {
       const ready: string[] = [];
       for (const path of paths) if (await settled(path)) ready.push(path);
-      if (ready.length > 0) await add(ready);
+      if (ready.length > 0) await add(ready, { md: false });
     })();
   }, DEBOUNCE_MS);
 }
@@ -77,7 +77,7 @@ export async function addWatch(path: string): Promise<WatchFolder[]> {
     updateSettings({ watch: next });
     start(path);
     // 이미 들어 있는 것도 한 번 훑는다.
-    await add([path]);
+    await add([path], { md: false });
   }
   return settings().watch;
 }

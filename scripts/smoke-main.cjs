@@ -18,7 +18,8 @@ const { app, BrowserWindow } = require("electron");
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
-const { mkdirSync, writeFileSync, readFileSync } = require("node:fs");
+const { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { createMainWindow } = require("../out/main/window.js");
 const { broadcastChanges, registerIpc } = require("../out/main/ipc.js");
@@ -167,7 +168,7 @@ app.whenReady().then(async () => {
 
     // 2. preload 표면과 렌더러 모듈 체인 — 테마 캡처보다 먼저 본다.
     //    모듈이 깨졌으면 여기서 정확한 사유가 나온다.
-    const SURFACE = ["version", "getFilePath", "list", "markdown", "add", "onChanged", "exportMarkdown", "addWatch", "getSettings", "window"];
+    const SURFACE = ["version", "getFilePath", "list", "markdown", "add", "onChanged", "exportMarkdown", "addWatch", "getSettings", "window", "newMd", "saveMd", "saveMdAs", "renderMd", "setUnsaved"];
     const api = await win.webContents.executeJavaScript(
       `${JSON.stringify(SURFACE)}.map((k) => typeof window.markExtract?.[k]).join(',')`,
     );
@@ -480,6 +481,99 @@ app.whenReady().then(async () => {
       if (scan.failbox || !scan.box) failures.push("이미지 PDF 가 빨간 실패 상자로 그려집니다");
       if (!scan.button.includes("OCR 로 변환")) failures.push(`[OCR 로 변환] 버튼이 없습니다: ${scan.button}`);
     }
+
+    // 2-h. Markdown 열기·편집·저장 (build.38). CRLF 파일을 열어 한 줄 더하고 Ctrl+S.
+    //      목록이 다시 그려져도 편집 영역(커서·값)이 그대로인지가 요점이다.
+    // markextract- 로 시작하면 verify-queue 의 "어댑터 임시 디렉터리가 남지 않았다" 에 걸린다.
+    const mdDir = mkdtempSync(join(tmpdir(), "smoke-md-"));
+    const mdPath = join(mdDir, "메모.md");
+    writeFileSync(mdPath, "# 메모\r\n\r\n첫 줄\r\n");
+    const edit = await win.webContents.executeJavaScript(`(async () => {
+      const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms));
+      window.confirm = () => true;
+      await window.markExtract.add([${JSON.stringify(mdPath)}]);
+      await wait();
+      const find = () => [...document.querySelectorAll("#docList .doc")].find((el) => (el.textContent ?? "").includes("메모.md"));
+      if (!find()) return { error: "md 카드가 목록에 없음" };
+      find().click();
+      await wait();
+      const r = {
+        meta: (find()?.querySelector(".doc-meta")?.textContent ?? "").trim(),
+        status: (find()?.querySelector(".status")?.textContent ?? "").trim(),
+        preview: (document.querySelector("#panel h1")?.textContent ?? "").trim(),
+        // hidden 속성이 아니라 실제로 가려졌는지 본다. .tab · .tb-tool 의 display 규칙이
+        // [hidden] 을 덮어 속성은 붙었는데 화면에 남은 일이 있었다 (build.38 스크린샷).
+        logHidden: getComputedStyle(document.querySelector("#tab-log")).display === "none",
+        optHidden: getComputedStyle(document.querySelector("#inspectorToggle")).display === "none",
+      };
+      document.querySelector("#tab-source").click();
+      await wait();
+      const ta = document.querySelector("#editText");
+      r.tabLabel = document.querySelector("#tab-source").textContent.trim();
+      r.editorShown = !document.querySelector("#editor").hidden && document.querySelector("#panelScroll").hidden;
+      r.loaded = ta.value;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      document.execCommand("insertText", false, "둘째 줄\\n");
+      await wait(400);
+      r.dot = !!document.querySelector("#docList .unsaved") && !!document.querySelector("#crumbs .unsaved");
+      r.side = document.querySelector("#editPreview")?.textContent ?? "";
+      // 커서를 가운데 둔다. 끝에 두면 value 를 다시 넣어도(커서가 끝으로 감) 차이가 안 난다.
+      ta.setSelectionRange(3, 3);
+      const caret = ta.selectionStart;
+      document.querySelector('.chip[data-status="all"]').click();
+      await wait();
+      r.kept = document.querySelector("#editText") === ta && ta.selectionStart === caret && ta.value.endsWith("둘째 줄\\n");
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }));
+      await wait(700);
+      r.dotAfter = !!document.querySelector("#docList .unsaved");
+      r.valueAfter = ta.value;
+
+      // 새 문서: 편집 탭으로 열리고, 고친 뒤 제거하면 ● 가 사라진다.
+      document.querySelector("#newMd").click();
+      await wait(400);
+      r.newCrumb = (document.querySelector("#crumbs .cur")?.textContent ?? "").trim();
+      r.newEditing = !document.querySelector("#editor").hidden && ta.value === "";
+      document.execCommand("insertText", false, "새 글");
+      await wait();
+      r.newDot = !!document.querySelector("#docList .unsaved");
+      document.querySelector("#deleteBtn").click();
+      await wait(400);
+      r.cleared = !document.querySelector("#docList .unsaved");
+      return r;
+    })()`);
+    if (edit.error) failures.push(edit.error);
+    else {
+      if (!edit.meta.startsWith("MD") || edit.status !== "완료") failures.push(`md 카드가 다릅니다: ${edit.meta} / ${edit.status}`);
+      if (edit.preview !== "메모") failures.push(`md 미리보기 제목이 다릅니다: ${edit.preview}`);
+      if (!edit.logHidden || !edit.optHidden) failures.push("md 문서에 변환 로그 탭·옵션 버튼이 보입니다");
+      if (edit.tabLabel !== "편집") failures.push(`md 의 둘째 탭 이름이 다릅니다: ${edit.tabLabel}`);
+      if (!edit.editorShown) failures.push("편집 탭에서 편집 영역이 보이지 않습니다");
+      if (edit.loaded !== "# 메모\n\n첫 줄\n") failures.push(`편집 영역에 실린 본문이 다릅니다: ${JSON.stringify(edit.loaded)}`);
+      if (!edit.dot) failures.push("고친 뒤 ● (저장 안 함) 표시가 없습니다");
+      if (!edit.side.includes("둘째 줄")) failures.push(`옆 미리보기가 고친 내용을 따라가지 않습니다: ${edit.side}`);
+      if (!edit.kept) failures.push("목록을 다시 그리자 편집 영역의 값이나 커서가 바뀌었습니다");
+      if (edit.dotAfter) failures.push("Ctrl+S 뒤에도 ● 가 남아 있습니다");
+      if (!edit.valueAfter.endsWith("둘째 줄\n")) failures.push("저장 뒤 편집 영역 값이 바뀌었습니다");
+      const onDisk = readFileSync(mdPath, "utf8");
+      rmSync(mdDir, { recursive: true, force: true });
+      if (onDisk !== "# 메모\r\n\r\n첫 줄\r\n둘째 줄\r\n") failures.push(`저장된 파일이 다릅니다 (CRLF 유지): ${JSON.stringify(onDisk)}`);
+      if (edit.newCrumb !== "제목 없음.md" || !edit.newEditing) failures.push(`새 문서가 빈 편집 탭으로 열리지 않습니다: ${edit.newCrumb}`);
+      if (!edit.newDot) failures.push("새 문서에 쓴 뒤 ● 가 없습니다");
+      if (!edit.cleared) failures.push("고친 새 문서를 제거했는데 ● 가 남았습니다");
+    }
+    // 편집 화면(원문 | 미리보기) 한 장. 그 뒤 미리보기 탭으로 되돌린다 — 뒤의 스크롤
+    // 검사는 #panelScroll 을 쓰는데 편집 탭이면 가려져 있다.
+    await win.webContents.executeJavaScript(`(() => {
+      const card = [...document.querySelectorAll("#docList .doc")].find((el) => (el.textContent ?? "").includes("메모.md"));
+      card?.click();
+      document.querySelector("#tab-source").click();
+    })()`);
+    await new Promise((r) => setTimeout(r, 300));
+    writeFileSync(join(SHOTS, "w1440-editor.png"), (await win.webContents.capturePage()).toPNG());
+    shots.push(join("out/smoke", "w1440-editor.png"));
+    await win.webContents.executeJavaScript(`document.querySelector("#tab-render").click()`);
 
     // 3. 결과 영역이 실제로 스크롤되는지. 긴 문서는 한 화면에 들어오지 않는데,
     //    바깥 칸에 높이 제약이 없으면 안쪽 overflow:auto 가 걸리지 않아 뒷부분을

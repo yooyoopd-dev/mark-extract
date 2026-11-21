@@ -11,11 +11,12 @@ import { EventEmitter } from "node:events";
 import { readdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { convert } from "./convert";
+import { NEW_META, readMd, saveMd as writeMd, type MdMeta, type SaveOutcome } from "./md-file";
 import { settings } from "./settings";
 import type { DocKind, DocOptions, DocView, ExportRequest, ExportResult } from "../shared/doc";
 import type { ParseResult } from "../shared/parse";
 
-const SUPPORTED: readonly DocKind[] = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "eml"];
+const SUPPORTED: readonly DocKind[] = ["pdf", "docx", "xlsx", "xls", "pptx", "html", "eml", "md"];
 /** 폴더를 통째로 끌어다 놓았을 때 훑을 깊이. 무한히 들어가지 않는다. */
 const MAX_DEPTH = 4;
 /** 큐가 무한히 커지지 않도록 (docs/design/05-packaging.md). */
@@ -25,6 +26,8 @@ interface Entry {
   view: Mutable<DocView>;
   markdown: string;
   abort: AbortController | null;
+  /** md 문서만. 저장할 때 줄바꿈·BOM 을 되돌리고 바깥 수정을 알아챈다 */
+  md?: MdMeta;
 }
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -45,8 +48,8 @@ export const markdownOf = (id: string): string => entries.get(id)?.markdown ?? "
 
 function kindOf(path: string): DocKind | null {
   const raw = extname(path).slice(1).toLowerCase();
-  // .htm 은 같은 형식의 옛 확장자다.
-  const ext = (raw === "htm" ? "html" : raw) as DocKind;
+  // .htm 은 같은 형식의 옛 확장자다. .markdown 도 마찬가지.
+  const ext = (raw === "htm" ? "html" : raw === "markdown" ? "md" : raw) as DocKind;
   return SUPPORTED.includes(ext) ? ext : null;
 }
 
@@ -66,7 +69,8 @@ function trim(): void {
   if (entries.size <= MAX_DOCS) return;
 
   const removable = [...entries.values()]
-    .filter((e) => e.view.status === "done")
+    // md 는 덜어내지 않는다 — 렌더러에 저장 안 한 편집이 있을 수 있다 (build.38).
+    .filter((e) => e.view.status === "done" && !e.md)
     .sort((a, b) => a.view.addedAt - b.view.addedAt);
 
   for (const entry of removable) {
@@ -134,6 +138,8 @@ async function addFile(path: string, options?: DocOptions): Promise<DocView | nu
     snippet: "대기 중입니다.",
   };
 
+  if (kind === "md") return openMd(view);
+
   entries.set(view.id, { view, markdown: "", abort: null });
   pending.push(view.id);
   trim();
@@ -141,7 +147,7 @@ async function addFile(path: string, options?: DocOptions): Promise<DocView | nu
 }
 
 /** 폴더면 안을 훑고, 파일이면 그대로. 지원하지 않는 형식은 조용히 거른다. */
-async function expand(path: string, depth = 0): Promise<string[]> {
+async function expand(path: string, md: boolean, depth = 0): Promise<string[]> {
   let info;
   try {
     info = await stat(path);
@@ -150,6 +156,9 @@ async function expand(path: string, depth = 0): Promise<string[]> {
   }
 
   if (info.isFile()) {
+    // md 는 하나씩 직접 열 때만 받는다. 폴더를 훑거나 감시 폴더로 들어오면 넣지 않는다 —
+    // 이 앱이 내보낸 .md 가 감시 폴더로 되돌아 들어오는 고리가 생긴다.
+    if (kindOf(path) === "md" && (!md || depth > 0)) return [];
     if (kindOf(path)) return [path];
     unsupported.push(basename(path));
     return [];
@@ -159,7 +168,7 @@ async function expand(path: string, depth = 0): Promise<string[]> {
   const found: string[] = [];
   for (const name of await readdir(path)) {
     if (name.startsWith(".")) continue;
-    found.push(...(await expand(join(path, name), depth + 1)));
+    found.push(...(await expand(join(path, name), md, depth + 1)));
   }
   return found;
 }
@@ -182,14 +191,15 @@ export interface AddResult {
 const oversized: Array<{ name: string; mb: number }> = [];
 const unsupported: string[] = [];
 
-export async function add(paths: readonly string[]): Promise<AddResult> {
+/** `md: false` 는 감시 폴더가 쓴다. */
+export async function add(paths: readonly string[], { md = true } = {}): Promise<AddResult> {
   let added = 0;
   let skipped = 0;
   oversized.length = 0;
   unsupported.length = 0;
 
   for (const path of paths) {
-    const files = await expand(path);
+    const files = await expand(path, md);
     if (files.length === 0) skipped += 1;
 
     for (const file of files) {
@@ -214,10 +224,110 @@ export function remove(id: string): void {
   emit();
 }
 
+/* ── Markdown 파일 (build.38) ─────────────────────────── */
+//
+// 변환하지 않으므로 큐를 지나지 않는다. 읽으면 곧바로 "완료" 다.
+
+function mdResult(meta: MdMeta): Omit<ParseResult, "markdown"> {
+  return {
+    ok: true,
+    warnings:
+      meta.charset === "euc-kr"
+        ? [{ code: "ENCODING_CONVERTED", message: "EUC-KR 로 된 파일입니다. 저장하면 UTF-8 로 바뀝니다." }]
+        : [],
+    log: [
+      { label: "형식", value: "Markdown (변환 없음)" },
+      { label: "인코딩", value: meta.charset === "utf-8" ? `UTF-8${meta.bom ? " (BOM)" : ""}` : "EUC-KR" },
+      { label: "줄바꿈", value: meta.eol === "\r\n" ? "CRLF" : "LF" },
+    ],
+    meta: { engine: "Markdown 파일", elapsedMs: 0 },
+  };
+}
+
+function setMd(entry: Entry, text: string, meta: MdMeta, size: number): void {
+  entry.markdown = text;
+  entry.md = meta;
+  entry.view.size = size;
+  entry.view.status = "done";
+  entry.view.result = mdResult(meta);
+  // 같은 "완료" 상태에서 본문이 바뀐다. 렌더러의 본문 캐시가 이것으로 낡음을 안다.
+  entry.view.rev = (entry.view.rev ?? 0) + 1;
+  entry.view.snippet = snippetOf({ ok: true, markdown: text, warnings: [], log: [], meta: { engine: "", elapsedMs: 0 } }, text);
+}
+
+async function openMd(view: Mutable<DocView>): Promise<DocView | null> {
+  let read;
+  try {
+    read = await readMd(view.path);
+  } catch {
+    return null;
+  }
+  const entry: Entry = { view, markdown: "", abort: null };
+  setMd(entry, read.text, read.meta, read.size);
+  entries.set(view.id, entry);
+  trim();
+  return view;
+}
+
+/** 새 문서. 경로가 없다 — 처음 저장할 때 "다른 이름으로 저장" 을 거친다. */
+export function newMd(): DocView {
+  const view: Mutable<DocView> = {
+    id: `d${++seq}`,
+    name: "제목 없음.md",
+    path: "",
+    kind: "md",
+    size: 0,
+    status: "done",
+    addedAt: Date.now(),
+    options: {},
+    result: null,
+    snippet: "",
+  };
+  const entry: Entry = { view, markdown: "", abort: null };
+  setMd(entry, "", NEW_META, 0);
+  entries.set(view.id, entry);
+  emit();
+  return view;
+}
+
+/**
+ * 저장한다. `path` 를 주면 그 이름으로 저장한다(다른 이름으로 저장 — 바깥 수정
+ * 검사는 하지 않는다). 경로 없는 새 문서는 `path` 가 있어야 한다.
+ */
+export async function saveMd(id: string, text: string, path: string | null, force: boolean): Promise<SaveOutcome> {
+  const entry = entries.get(id);
+  if (!entry?.md) return { ok: false, conflict: false, message: "Markdown 문서가 아닙니다." };
+  const target = path ?? entry.view.path;
+  if (target === "") return { ok: false, conflict: false, message: "저장할 위치가 없습니다." };
+
+  const meta = path === null ? entry.md : { ...entry.md, mtimeMs: 0 };
+  const outcome = await writeMd(target, text, meta, force || path !== null);
+  if (outcome.ok) {
+    entry.view.path = target;
+    entry.view.name = basename(target);
+    setMd(entry, text, outcome.meta, outcome.size);
+    emit();
+  }
+  return outcome;
+}
+
+/** md 의 [다시 읽기]. 바깥에서 고친 내용을 받아 온다. */
+async function reloadMd(entry: Entry): Promise<void> {
+  if (entry.view.path === "") return;
+  try {
+    const read = await readMd(entry.view.path);
+    setMd(entry, read.text, read.meta, read.size);
+  } catch (error) {
+    entry.view.snippet = `다시 읽지 못했습니다: ${(error as Error).message}`;
+  }
+  emit();
+}
+
 /** 옵션을 바꿔 다시 넣는다. 진행 중이면 먼저 취소한다. */
 export function reconvert(id: string, options?: DocOptions): void {
   const entry = entries.get(id);
   if (!entry) return;
+  if (entry.md) return void reloadMd(entry);
 
   entry.abort?.abort();
   if (options) entry.view.options = options;
@@ -400,6 +510,6 @@ export function shutdown(): void {
 export async function initialPaths(): Promise<string[]> {
   const candidates = process.argv.slice(1).filter((arg) => !arg.startsWith("-"));
   const found: string[] = [];
-  for (const path of candidates) found.push(...(await expand(path)));
+  for (const path of candidates) found.push(...(await expand(path, true)));
   return found;
 }

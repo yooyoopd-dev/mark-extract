@@ -6,12 +6,14 @@
  * 고치는 곳은 없다 — 그래야 감시 폴더로 들어온 문서와 화면이 어긋나지 않는다.
  */
 import { renderList } from "./views/list.js";
-import { logText, renderViewer } from "./views/viewer.js";
+import { logText, renderViewer, setRerender } from "./views/viewer.js";
+import { currentText, discard, edits, focusEditor, initEditor, markSaved, showEditor } from "./views/editor.js";
 import { renderInspector } from "./views/inspector.js";
 import { initToasts, toast } from "./views/toast.js";
 import { renderSettings, type Pane, type SettingsView } from "./views/settings.js";
 import {
   bodyKey,
+  bodyReady,
   docs,
   effectiveOptions,
   getDoc,
@@ -53,14 +55,28 @@ function applyTheme(): void {
 /* ── 렌더 ───────────────────────────────────────────────── */
 
 function render(): void {
-  app.dataset["pane"] = state.pane;
-  app.dataset["inspector"] = state.inspector ? "open" : "closed";
-  $("#inspectorToggle").setAttribute("aria-pressed", String(state.inspector));
-
   const selected = getDoc(state.selected);
+  // md 문서 (build.38): 변환 옵션·변환 로그가 없다. 둘째 탭은 "편집" 이다.
+  const isMd = selected?.kind === "md";
+  if (isMd && state.tab === "log") state.tab = "render";
+  app.dataset["kind"] = selected?.kind ?? "";
+
+  app.dataset["pane"] = state.pane;
+  app.dataset["inspector"] = state.inspector && !isMd ? "open" : "closed";
+  $("#inspectorToggle").setAttribute("aria-pressed", String(state.inspector));
+  $("#inspectorToggle").hidden = isMd;
+  $("#tab-source").textContent = isMd ? "편집" : "Markdown";
+  $("#tab-log").hidden = isMd;
+  $("#reconvertBtn").title = isMd ? "파일에서 다시 읽기" : "재변환";
+  $("#reconvertBtn").setAttribute("aria-label", isMd ? "파일에서 다시 읽기" : "재변환");
+
   renderList(docList);
   renderViewer(panel, crumbs, warnCount, dirtyBar, selected);
   renderInspector(inspBody, selected);
+
+  const editing = isMd && state.tab === "source";
+  $("#panelScroll").hidden = editing;
+  showEditor(editing ? selected : null, editing && bodyReady(selected) ? markdown() : null);
 
   for (const tab of $$<HTMLButtonElement>(".tab")) {
     const isSelected = tab.dataset["tab"] === state.tab;
@@ -77,7 +93,61 @@ function render(): void {
   for (const id of ["#reconvertBtn", "#revealBtn", "#deleteBtn"]) {
     $<HTMLButtonElement>(id).disabled = selected === null;
   }
+  // 아직 저장하지 않은 새 문서는 파일이 없다.
+  if (selected?.path === "") {
+    $<HTMLButtonElement>("#reconvertBtn").disabled = true;
+    $<HTMLButtonElement>("#revealBtn").disabled = true;
+  }
 }
+
+/* ── Markdown 편집 (build.38) ───────────────────────────── */
+
+/** 고칠 때마다: ● 를 다시 그리고 main 에 저장 안 한 개수를 알린다. */
+let lastUnsaved = 0;
+function editsChanged(): void {
+  renderList(docList);
+  renderViewer(panel, crumbs, warnCount, dirtyBar, getDoc(state.selected));
+  if (edits.size !== lastUnsaved) {
+    lastUnsaved = edits.size;
+    void window.markExtract.setUnsaved(edits.size);
+  }
+}
+
+async function newMd(): Promise<void> {
+  const doc = await window.markExtract.newMd();
+  state.selected = doc.id;
+  state.tab = "source";
+  state.pane = "viewer";
+  await refresh();
+  focusEditor();
+}
+
+/** Ctrl+S. 경로 없는 새 문서이거나 `as` 면 다른 이름으로 저장. */
+async function saveMd(as: boolean): Promise<void> {
+  const doc = getDoc(state.selected);
+  if (doc?.kind !== "md" || !bodyReady(doc)) return;
+  const text = currentText(doc, markdown());
+
+  let outcome = as || doc.path === "" ? await window.markExtract.saveMdAs(doc.id, text) : await window.markExtract.saveMd(doc.id, text);
+  if (outcome === null) return;
+  if (!outcome.ok && outcome.conflict) {
+    if (!window.confirm(`${doc.name} 을(를) 다른 프로그램이 고쳤습니다. 지금 내용으로 덮어쓸까요?\n\n취소하면 저장하지 않습니다. [파일에서 다시 읽기] 로 바뀐 내용을 볼 수 있습니다.`)) return;
+    outcome = await window.markExtract.saveMd(doc.id, text, true);
+  }
+  if (!outcome.ok) {
+    toast(`저장하지 못했습니다: ${outcome.conflict ? "다른 프로그램이 파일을 고쳤습니다." : outcome.message}`, "err");
+    return;
+  }
+
+  markSaved(doc, text);
+  editsChanged();
+  toast("저장했습니다.");
+  await refresh();
+}
+
+/** 저장 안 한 내용을 버려도 되는지. 없으면 묻지 않는다. */
+const mayDiscard = (doc: Doc, what: string): boolean =>
+  !edits.has(doc.id) || window.confirm(`${doc.name} 의 고친 내용을 저장하지 않았습니다. ${what}`);
 
 /* ── main 의 큐와 맞추기 ────────────────────────────────── */
 
@@ -281,6 +351,7 @@ function bind(): void {
   });
 
   $("#addFile").addEventListener("click", () => void pickFiles());
+  $("#newMd").addEventListener("click", () => void newMd());
 
   // 탭
   for (const tab of $$<HTMLButtonElement>(".tab")) {
@@ -306,12 +377,23 @@ function bind(): void {
   });
   $("#reconvertBtn").addEventListener("click", () => {
     const doc = getDoc(state.selected);
-    if (doc) reconvert(doc);
+    if (!doc) return;
+    if (doc.kind === "md") {
+      if (!mayDiscard(doc, "버리고 파일에서 다시 읽을까요?")) return;
+      discard(doc.id);
+      editsChanged();
+    }
+    reconvert(doc);
   });
   $("#copyBtn").addEventListener("click", () => void copyMarkdown());
   $("#deleteBtn").addEventListener("click", () => {
     const doc = getDoc(state.selected);
     if (!doc) return;
+    if (doc.kind === "md") {
+      if (!mayDiscard(doc, "버리고 목록에서 제거할까요?")) return;
+      discard(doc.id);
+      editsChanged();
+    }
     // 선택을 목록에서의 다음 문서로 옮겨 둔다. apply() 가 비어 있으면 처음으로 돌린다.
     const list = visibleDocs();
     const at = list.findIndex((d) => d.id === doc.id);
@@ -423,7 +505,9 @@ function bind(): void {
 async function copyMarkdown(): Promise<void> {
   const doc = getDoc(state.selected);
   if (!doc || doc.status !== "done") return;
-  await navigator.clipboard.writeText(await window.markExtract.markdown(doc.id));
+  const saved = await window.markExtract.markdown(doc.id);
+  // md 는 저장 전이라도 화면에 보이는 그대로 복사한다.
+  await navigator.clipboard.writeText(doc.kind === "md" ? currentText(doc, saved) : saved);
   toast("Markdown 을 복사했습니다.");
 }
 
@@ -735,7 +819,13 @@ function bindSettings(): void {
 function globalKeys(): void {
   document.addEventListener("keydown", (event) => {
     const mod = event.ctrlKey || event.metaKey;
-    if (mod && event.key.toLowerCase() === "o") {
+    if (mod && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      void saveMd(event.shiftKey);
+    } else if (mod && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      void newMd();
+    } else if (mod && event.key.toLowerCase() === "o") {
       event.preventDefault();
       void pickFiles();
     } else if (mod && event.key.toLowerCase() === "e") {
@@ -782,6 +872,8 @@ function dragAndDrop(): void {
 /* ── 시작 ───────────────────────────────────────────────── */
 
 initToasts($("#toasts"));
+initEditor(editsChanged);
+setRerender(render);
 bind();
 globalKeys();
 dragAndDrop();
