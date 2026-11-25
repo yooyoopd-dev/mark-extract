@@ -905,3 +905,27 @@ turndown(HTML)·postal-mime(EML) 두 의존성을 더했다. 표·그림은 기�
 - 한글 IME 입력(xvfb 에서는 볼 수 없다), 연결 프로그램으로 .md 열기, 수 MB md 의 반응
 - Windows 에서 rename 이 기존 파일을 덮는지는 CI 의 `verify-md` 가 본다
 
+## build.39 — HTML·EML 을 글자만 깔끔하게 (0.1.2)
+
+요청: html·eml 변환에 HTML 양식 코드가 글자로 섞인다. 공개 프로젝트를 참고해 개선.
+
+### 원인 (재현함)
+
+배치용 표를 데이터 표로 다뤘다. 바깥 표는 본문이 칸 하나에 뭉치고, 안에 표가 있으면 표
+변환이 실패해 HTML 코드가 그대로 남았다. 숨김 미리보기 문구·추적 픽셀·폭 없는 글자도 섞였다.
+
+### 한 것
+
+- `html-clean.ts`: turndown 전에 domino 로 정리 — 주석·VML·숨김·추적 픽셀·폭 없는 글자를
+  지우고, Readability 의 데이터 표 판정(자기 칸만 보도록 바꿈)으로 배치 표를 풀어 낸다
+- 참고: mozilla/readability(판정 규칙), microsoft/markitdown(script·style 제거와 body 만 —
+  이미 같았다). ATTRIBUTION 에 적었다
+
+### 검증
+
+- 새 시험 자료 3종(메일 소식지 HTML·EML, 웹 페이지). 태그 없음·순서·숨김 4종·조건부 주석·
+  픽셀·데이터 표 단언
+- 기존 HTML·EML 시험 자료 6종의 결과는 바이트 그대로(전후 비교)
+- 깨뜨려 보기 4종(배치 표 풀기 끄기 / 숨김 제거 끄기 / th 를 안쪽 표까지 / 픽셀 남기기) 모두 물었다
+- `npm run verify` 7종 통과
+

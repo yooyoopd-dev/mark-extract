@@ -13,6 +13,7 @@
  */
 import { readFile } from "node:fs/promises";
 import TurndownService from "turndown";
+import { cleanHtml } from "../html-clean";
 import { cleanHtmlInMarkdown } from "../html-in-markdown";
 import { noteImages, type ImageMode } from "../image-notes";
 import { normalizeMarkdown } from "../normalize";
@@ -121,7 +122,8 @@ export interface Converted {
 
 /** HTML 문자열을 우리 규칙의 Markdown 으로. EML 본문도 이것을 쓴다. */
 export function htmlToMarkdown(html: string, imageMode: ImageMode): Converted {
-  const raw = service().turndown(html);
+  // 배치 표·숨김·주석·추적 픽셀을 먼저 걷어 낸다 (build.39, html-clean.ts).
+  const raw = service().turndown(cleanHtml(html) as unknown as TurndownService.Node);
   const cleaned = cleanHtmlInMarkdown(raw);
   const noted = noteImages(cleaned.markdown, imageMode);
   return { markdown: normalizeMarkdown(noted.markdown), warnings: [...cleaned.warnings, ...noted.warnings] };

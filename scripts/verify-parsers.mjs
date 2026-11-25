@@ -234,6 +234,23 @@ const HTML_ONLY = [
   ["목록 기호 뒤 공백이 하나", (md) => !/^- {2,}/m.test(md)],
 ];
 
+/** 남으면 안 되는 HTML 태그 (`<br>` 는 표 셀 안 줄바꿈 관례라 뺀다). */
+const HTML_TAG = /<\/?(?!br\b)[a-z][\w:-]*(?:\s[^>]*)?\/?>/i;
+
+/** 메일 소식지 (sample-newsletter.*). 바꾸기 전에는 본문이 칸 하나에 뭉치고 HTML 이 남았다. */
+const CLEAN_CHECKS = [
+  ["HTML 태그가 남지 않는다", (md) => !HTML_TAG.test(md)],
+  ["배치 표가 칸 하나로 뭉치지 않는다 — 제목이 제 줄에", (md) => /^# 사내 소식 11월호$/m.test(md) && /^## 행사$/m.test(md) && /^## 공지$/m.test(md)],
+  ["글자 순서가 원문대로", (md) => md.indexOf("행사") < md.indexOf("공지") && md.indexOf("공지") < md.indexOf("자세히 보기")],
+  ["안쪽 데이터 표는 파이프 표", (md) => /\|\s*점검\s*\|\s*12\/5\s*\|/.test(md)],
+  ["숨김 문구 4종이 없다", (md) => !/숨김 미리보기|화면 낭독기 숨김|보이지 않는 문구|아웃룩 숨김/.test(md)],
+  ["Outlook 조건부 주석·VML 이 없다", (md) => !md.includes("VML") && !md.includes("[if") && !md.includes("endif")],
+  ["조건부 주석 밖의 단추는 링크로 남는다", (md) => md.includes("[자세히 보기](https://news.example/more)")],
+  ["추적 1px 그림은 그림으로 세지 않는다", (md) => md.includes("[그림 1]") && !md.includes("[그림 2]")],
+  ["폭 없는 글자가 없다", (md) => !/[\u200B-\u200D\u2060\uFEFF\u00AD]/.test(md)],
+  ["o:p 껍데기를 벗기고 글자는 남긴다", (md) => md.includes("문의: [help@news.example](mailto:help@news.example)")],
+];
+
 const CASES = [
   {
     file: "sample-ko.pdf",
@@ -384,6 +401,32 @@ const CASES = [
       ["EUC-KR base64 본문이 풀린다", (md) => md.includes("텍스트로만 된 메일입니다.") && md.includes("둘째 문단.")],
       ["참조가 없으면 줄을 만들지 않는다", (md) => !md.includes("참조:")],
       ["첨부가 없으면 절을 만들지 않는다", (md) => !md.includes("## 첨부 파일")],
+    ],
+  },
+  // build.39 — 메일·웹 HTML 의 배치 표·숨김·주석·추적 픽셀 (html-clean.ts).
+  {
+    file: "sample-newsletter.html",
+    engine: "turndown",
+    title: "# 사내 소식 11월호",
+    extra: CLEAN_CHECKS,
+  },
+  {
+    file: "sample-newsletter.eml",
+    engine: "postal-mime",
+    title: "# 사내 소식 11월호",
+    extra: [...CLEAN_CHECKS, ["메일 머리는 그대로", (md) => md.includes("- 보낸 사람: news@news.example")]],
+  },
+  {
+    file: "sample-webpage.html",
+    engine: "turndown",
+    title: "# 업무 안내",
+    extra: [
+      ["HTML 태그가 남지 않는다", (md) => !HTML_TAG.test(md)],
+      ["스크립트 글자가 없다", (md) => !md.includes("스크립트 글자")],
+      ["1행 2칸 배치 표는 풀린다 — 차례가 목록으로", (md) => md.includes("- [차례 하나](#a)") && !/\|\s*-?\s*\[차례/.test(md)],
+      ["배치 표의 글자 순서: 차례 → 본문 → 끝", (md) => md.indexOf("차례 둘") < md.indexOf("본문 첫 문단") && md.indexOf("본문 첫 문단") < md.indexOf("본문 끝 문단")],
+      // th 가 없어도 4행 3칸(12 > 10)이면 데이터 표다 — Readability 의 크기 규칙.
+      ["th 없는 작은 데이터 표도 파이프 표", (md) => /\|\s*김철수\s*\|\s*총무\s*\|\s*1234\s*\|/.test(md)],
     ],
   },
   {
