@@ -452,6 +452,28 @@ markitdown은 표를 HTML로 만든 뒤 Markdown으로 변환하지만, 우리�
   본문 첫 줄에 한 번 더 나왔다) — 그래서 `title` 을 따로 지운다
 - 목록 기호 뒤 공백은 하나 (turndown 기본은 셋)
 
+### 넘기기 전 정리 — 배치 표·숨김·주석 (build.39)
+
+메일·웹 HTML 을 그대로 넘기면 배치용 표가 데이터 표로 읽혀 본문 전체가 칸 하나에 뭉치고,
+안에 표가 또 있으면 표 변환이 실패해 **HTML 코드가 그대로** 남았다(사용자 보고, 재현함).
+그래서 `html-clean.ts` 가 domino(turndown 이 쓰는 파서)로 문서를 먼저 다듬어 넘긴다.
+EML 의 HTML 본문도 같은 길을 지난다.
+
+- 지운다: 주석(Outlook `<!--[if mso]>` 포함) · `xml` · VML(`v:*`) · `svg`·`canvas`·입력창 ·
+  숨긴 요소 · 가로나 세로 2px 이하 그림(추적 픽셀) · 폭 없는 글자. `o:p` 같은 접두사 태그는
+  껍데기만 벗긴다
+- 숨김 판정은 Mozilla Readability 의 `_isProbablyVisible` 규칙(인라인 `display:none` ·
+  `visibility:hidden` · `hidden` 속성 · `aria-hidden="true"`)에 Outlook 의 `mso-hide:all` 을 더했다.
+  스타일시트는 보지 않는다
+- 표 판정은 Readability `_markDataTables` 의 순서 그대로다 — `role=presentation` → 배치,
+  `summary`·`caption`·`col`·`thead`·`tfoot`·`th` → 데이터, 안에 표 → 배치, 1행·1열 → 배치,
+  10행 이상·4열 초과 → 데이터, 그 밖에 행×열 > 10 → 데이터. **바꾼 것 하나**: `th` 등을 그
+  표 **자신의** 칸에서만 찾는다. Readability 는 안쪽 표까지 뒤져, 바깥 배치 표가 안쪽 데이터
+  표 때문에 데이터 표가 된다 — 메일에서 바로 문제의 모양이다 (깨뜨려 보기로 확인)
+- 배치 표는 칸마다 블록으로 풀어 원문 순서대로 낸다. 데이터 표는 위의 표 경로 그대로
+- 하지 않은 것: 본문만 골라 내기(Readability 의 기사 추출). 메뉴·꼬리말도 남는다. 기사 모양에
+  맞춘 방식이라 메일·사내 화면에서는 본문까지 버릴 수 있다(추측, 실측하지 않음)
+
 ### 문자셋
 
 BOM → 앞 4KB 의 `<meta charset>` → UTF-8 엄격 디코드 → 실패하면 **EUC-KR**. 사내 웹

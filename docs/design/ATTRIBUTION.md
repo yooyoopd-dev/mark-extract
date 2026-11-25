@@ -4,7 +4,9 @@
 |---|---|---|---|
 | [opendataloader-pdf](https://github.com/opendataloader-project/opendataloader-pdf) | Apache-2.0 | PDF 파싱 전체 | JAR 원본 동봉 |
 | [kordoc](https://github.com/chrisryugj/kordoc) | MIT | DOCX / XLSX / XLS 파싱 | npm 의존성 |
-| [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown | npm 의존성 (전이: `@mixmark-io/domino` BSD-2-Clause) |
+| [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown | npm 의존성 |
+| [domino](https://github.com/mixmark-io/domino) | BSD-2-Clause | HTML 파싱 (turndown 의 파서를 직접도 쓴다, build.39) | npm 의존성 |
+| [Readability](https://github.com/mozilla/readability) | Apache-2.0 (Arc90 Inc, Mozilla) | HTML 숨김·데이터 표 판정 **규칙** (`_isProbablyVisible`, `_markDataTables`) | 규칙만 따라 재작성 (코드 복사 없음) — `src/main/html-clean.ts` |
 | [postal-mime](https://github.com/postalsys/postal-mime) | MIT-0 | EML(MIME) 파싱 | npm 의존성 (의존성 없음) |
 | [markitdown](https://github.com/microsoft/markitdown) | MIT (Microsoft Corporation) | PPTX 변환 **규칙** | 로직 포팅 (Python → TypeScript 재작성) |
 | [llm-co-wiki](https://github.com/yooyoopd-dev/llm-co-wiki) | **GPLv3** | CLI 인자 조합·프로토콜 사실·운영 사실 | 사실 정보만 인용 (코드 복사 없음) |

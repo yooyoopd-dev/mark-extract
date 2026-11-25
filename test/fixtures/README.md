@@ -134,6 +134,17 @@ python3 test/fixtures/make-scan-sample.py
 
 다시 돌리면 `sample-scan.pdf` 의 바이트가 바뀐다(생성 시각). 커밋된 것을 되돌려 쓴다.
 
+## sample-newsletter.html · sample-newsletter.eml · sample-webpage.html (build.39)
+
+`make-newsletter.py`(표준 라이브러리만)가 만든다. 메일 소식지(세 겹 배치 표 안의 데이터 표,
+숨김 문구 4종, 추적 픽셀, Outlook 조건부 주석·VML·`o:p`, 폭 없는 글자), 그것을 담은 메일,
+웹 페이지(1행 2칸 배치 표, `th` 없는 4행 3칸 데이터 표). make-mail.py 와 나눈 이유는 그것을
+다시 돌리면 MIME 경계가 바뀌어 기존 EML 바이트가 달라지기 때문이다.
+
+```
+python3 test/fixtures/make-newsletter.py
+```
+
 ## sample-euckr.html · sample-ko.eml · sample-text.eml (build.34)
 
 `make-mail.py`(표준 라이브러리만)가 만든다. 무엇을 왜 담았는지는 스크립트 머리에

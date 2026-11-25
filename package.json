@@ -1,6 +1,6 @@
 {
   "name": "mark-extract",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "문서를 Markdown으로만 변환하는 Windows 단일 실행 AI Document Parser",
   "main": "out/main/index.js",
@@ -31,6 +31,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@mixmark-io/domino": "^2.2.0",
     "@xmldom/xmldom": "^0.9.12",
     "jszip": "^3.10.2",
     "kordoc": "^4.14.0",
